@@ -1,0 +1,8 @@
+node_modules
+elm-stuff
+npm-debug.log
+.DS_Store
+src/static/elm.js
+# elm-repl generated files
+repl-temp-*
+dist

@@ -1,0 +1,37 @@
+{
+  "name": "suzdal",
+  "version": "0.1.0",
+  "description": "application for content storage. Build on a top of IPFS",
+  "main": "index.js",
+  "author": "Igor Brylyov",
+  "license": "MIT",
+  "dependencies": {
+    "ipfs-http-client": "^32.0.1",
+    "orbit-db": "^0.20.1"
+  },
+  "scripts": {
+    "build": "webpack",
+    "watch": "webpack --watch",
+    "dev": "webpack-dev-server",
+    "test": "elm-test",
+    "start": "npm run dev",
+    "prod": "webpack -p",
+    "analyse": "elm-analyse -s -p 3001 -o"
+  },
+  "devDependencies": {
+    "css-loader": "^2.1.1",
+    "elm-analyse": "^0.16.4",
+    "elm-test": "^0.19.0-rev6",
+    "elm-webpack-loader": "^5.0.0",
+    "file-loader": "^3.0.1",
+    "style-loader": "^0.23.1",
+    "webpack": "^4.32.1",
+    "webpack-cli": "^3.3.2",
+    "webpack-dev-middleware": "^3.7.0",
+    "webpack-dev-server": "^3.4.1",
+    "webpack-hot-middleware": "^2.25.0"
+  },
+  "prettier": {
+    "tabWidth": 4
+  }
+}
