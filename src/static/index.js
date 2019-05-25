@@ -1,8 +1,14 @@
 'use strict';
 
-const IpfsClient = require('ipfs-http-client');
-const OrbitDB = require('orbit-db');
-const ipfs = IpfsClient('localhost', '5001');
+// const IpfsClient = require('ipfs-http-client');
+// const OrbitDB = require('orbit-db');
+// const ipfs = IpfsClient('localhost', '5001');
+
+// (async () => {
+//     const orbitdb = await OrbitDB.createInstance(ipfs)
+//     const db = await orbitdb.log('hello')
+// })();
+
 const { Elm } = require('../elm/Main');
 
 var storageKey = "suzdal";
@@ -10,18 +16,33 @@ var flags = localStorage.getItem(storageKey);
 
 console.log("Retrieved state: ", flags);
 
+
 var app = Elm.Main.init({
     flags: flags
 });
 
+// Evan's example
+// var storedState = localStorage.getItem('elm-todo-save');
+// var startingState = storedState ? JSON.parse(storedState) : null;
+// var app = Elm.Main.init({ flags: startingState });
+// app.ports.setStorage.subscribe(function(state) {
+//     localStorage.setItem('elm-todo-save', JSON.stringify(state));
+// });
 
-(async () => {
-    const orbitdb = await OrbitDB.createInstance(ipfs)
-    const db = await orbitdb.log('hello')
-})();
+app.ports.storePeers.subscribe(function(val) {
+    localStorage.setItem("peers", JSON.stringify(val));
+});
+
+app.ports.fetchPeers.subscribe(function() {
+    var peers = localStorage.getItem('peers');
+    setTimeout(function() { 
+        app.ports.getPeers.send(peers);
+    }, 200);
+});
 
 
-app.ports.storeCache.subscribe(function(val) {
+
+app.ports.setStorage.subscribe(function(val) {
     if (val === null) {
         localStorage.removeItem(storageKey);
     } else {

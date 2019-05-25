@@ -65,6 +65,11 @@ subscriptions model =
         ]
 
 
+keyDecoder : Decode.Decoder String
+keyDecoder =
+    Decode.field "key" Decode.string
+
+
 
 -- INIT
 
@@ -444,7 +449,7 @@ update msg model =
                         | zipper = setFocus node.location model.zipper |> Zipper.replaceLabel node
                         , changes = Dict.insert node.location node model.changes
                       }
-                    , Cmd.none
+                    , Api.get (Endpoint.dagGet url node.cid) (GetNodeContent node.cid) contentDecoder
                     )
 
                 Err _ ->
@@ -806,7 +811,7 @@ view model =
                     row
                         [ width fill
                         , spacing 20
-                        , paddingEach { edges | top = 10, bottom = 10, left = 10 }
+                        , paddingEach { edges | top = 10, bottom = 10, left = 20 }
                         , height <| px 950
                         ]
                         [ viewAllContexts model
@@ -1087,11 +1092,10 @@ viewContent model =
         [ column
             [ width fill
             , spacing 5
-            , paddingEach { edges | right = 10 }
+            , paddingEach { edges | right = 28, left = 15 }
             , height fill
             ]
-            [ paragraph [ paddingXY 0 7, Font.size 24 ] [ text node.description ]
-            , case model.content of
+            [ case model.content of
                 Success content ->
                     column
                         [ height <| px 880
@@ -1122,6 +1126,13 @@ viewContent model =
 
                           else
                             none
+                        , paragraph
+                            [ paddingEach { edges | top = 20, bottom = 7 }
+                            , Border.color <| darkGrey 1.0
+                            , Border.widthEach { edges | bottom = 2 }
+                            , Font.size 24
+                            ]
+                            [ text node.description ]
                         , column
                             [ width fill, scrollbarY, alignTop, paddingEach { edges | right = 10 } ]
                           <|
@@ -2037,8 +2048,3 @@ getContexts zipper acc =
 
         Nothing ->
             [ [ Zipper.label zipper ] ] ++ appendChildren
-
-
-keyDecoder : Decode.Decoder String
-keyDecoder =
-    Decode.field "key" Decode.string

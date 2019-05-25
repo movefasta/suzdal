@@ -137,7 +137,7 @@ storeBookmarks bookmarks =
         json =
             bookmarksEncoder bookmarks
     in
-    Api.storeCache (Just json)
+    Api.setStorage (Just json)
 
 
 

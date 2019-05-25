@@ -42,12 +42,16 @@ module Icons exposing
     , save
     , search
     , send
+    , server
     , settings
     , share2
+    , square
     , tag
     , toggleLeft
     , trash2
     , upload
+    , user
+    , x
     )
 
 import Html exposing (Html)
@@ -67,6 +71,32 @@ svgFeatherIcon className =
         , strokeWidth "1"
         , viewBox "0 0 24 24"
         , width "30"
+        ]
+
+
+x : Html msg
+x =
+    svgFeatherIcon "x"
+        [ Svg.line [ x1 "18", y1 "6", x2 "6", y2 "18" ] []
+        , Svg.line [ x1 "6", y1 "6", x2 "18", y2 "18" ] []
+        ]
+
+
+user : Html msg
+user =
+    svgFeatherIcon "user"
+        [ Svg.path [ d "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" ] []
+        , Svg.circle [ cx "12", cy "7", r "4" ] []
+        ]
+
+
+server : Html msg
+server =
+    svgFeatherIcon "server"
+        [ Svg.rect [ Svg.Attributes.x "2", y "2", width "20", height "8", rx "2", ry "2" ] []
+        , Svg.rect [ Svg.Attributes.x "2", y "14", width "20", height "8", rx "2", ry "2" ] []
+        , Svg.line [ x1 "6", y1 "6", x2 "6", y2 "6" ] []
+        , Svg.line [ x1 "6", y1 "18", x2 "6", y2 "18" ] []
         ]
 
 
@@ -155,6 +185,13 @@ check : Html msg
 check =
     svgFeatherIcon "check"
         [ Svg.polyline [ points "20 6 9 17 4 12" ] []
+        ]
+
+
+square : Html msg
+square =
+    svgFeatherIcon "square"
+        [ Svg.rect [ Svg.Attributes.x "3", y "3", width "18", height "18", rx "2", ry "2" ] []
         ]
 
 

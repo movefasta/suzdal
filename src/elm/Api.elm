@@ -1,4 +1,4 @@
-port module Api exposing (Hash, addServerError, application, check, cidDecoder, decodeErrors, get, pathDecoder, pathEncoder, post, put, settings, storeCache, storeSettings, task, viewerChanges)
+port module Api exposing (Hash, addServerError, application, check, cidDecoder, decodeErrors, fetchPeers, get, getPeers, pathDecoder, pathEncoder, post, put, setStorage, settings, storePeers, storeSettings, task, viewerChanges)
 
 {-| This module is responsible for communicating to the IPFS API.
 
@@ -28,6 +28,17 @@ type alias Hash =
 
 
 
+{-
+   IPFS ANSWERS
+
+   swarm connect error answer:
+   {"Message":"connect QmPPh4ZvNyuWUW4UjYb27KjgPx4kJcWYnho68QqwZ8Vby1 failure: this action must be run in online    mode, try running 'ipfs daemon' first","Code":0,"Type":"error"}
+
+   swarm connect success answer {"Strings":["connect QmPPh4ZvNyuWUW4UjYb27KjgPx4kJcWYnho68QqwZ8Vby1 success"]}
+
+   name publish answer :
+           {"Name":"QmVYm6HaeccvZGQTqHMFWGN9nZB7LtTHCFkdnASAXW88Wh","Value":"/ipfs/zdpuAyrRA72MNRgBD2HkVtFdDRZu1QpopWXySa7gWedVFaAh3"}
+-}
 -- PERSISTENCE
 
 
@@ -37,6 +48,18 @@ cidDecoder =
 
 
 port onStoreChange : (Value -> msg) -> Sub msg
+
+
+port getPeers : (Encode.Value -> msg) -> Sub msg
+
+
+port fetchPeers : () -> Cmd msg
+
+
+port storePeers : Encode.Value -> Cmd msg
+
+
+port setStorage : Maybe Value -> Cmd msg
 
 
 viewerChanges : (Path -> msg) -> Decoder Path -> Sub msg
@@ -59,10 +82,7 @@ storeSettings path =
         json =
             pathEncoder path
     in
-    storeCache (Just json)
-
-
-port storeCache : Maybe Value -> Cmd msg
+    setStorage (Just json)
 
 
 

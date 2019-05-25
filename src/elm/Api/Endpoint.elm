@@ -1,4 +1,4 @@
-module Api.Endpoint exposing (Endpoint, add, config, configSet, content, dagGet, dagPut, file, getContent, id, links, node, request, task, unwrap)
+module Api.Endpoint exposing (Endpoint, add, config, configSet, connect, content, dagGet, dagPut, file, getContent, id, publish, request, resolve, task, unwrap)
 
 import CommentId exposing (CommentId)
 import Http
@@ -39,6 +39,23 @@ publish url cid =
     urlBuilder (endpoint url) [ "name", "publish" ] [ Url.Builder.string "arg" cid, Url.Builder.string "allow-offline" "true" ]
 
 
+
+--connect : Url -> String -> String -> Endpoint
+--connect url peerid relay =
+--    urlBuilder (endpoint url) [ "swarm", "connect" ] [ Url.Builder.string "arg" ("/ipfs/" ++ relay ++ "/p2p-circuit/ipfs/" ++ peerid) ]
+
+
+connect : Url -> String -> String -> Endpoint
+connect url peerid relay =
+    endpoint url
+        ++ "/swarm/connect?arg="
+        --++ "/ipfs/"
+        --++ relay
+        ++ "/p2p-circuit/ipfs/"
+        ++ peerid
+        |> Endpoint
+
+
 resolve : Url -> String -> Endpoint
 resolve url peerid =
     urlBuilder (endpoint url) [ "name", "resolve" ] [ Url.Builder.string "arg" peerid ]
@@ -60,22 +77,21 @@ content url path =
         |> Endpoint
 
 
-node : Route.Path -> Endpoint
-node path =
-    "http://localhost:5001/api/v0/dag/get?arg="
-        ++ path.cid
-        ++ "/"
-        ++ (String.join "/" <| List.map (\s -> "links/" ++ String.fromInt s) path.location)
-        |> Endpoint
 
-
-links : Route.Path -> Endpoint
-links path =
-    "http://localhost:5001/api/v0/dag/get?arg="
-        ++ path.cid
-        ++ "/links/"
-        ++ (String.join "/" <| List.map (\s -> String.fromInt s ++ "/links") path.location)
-        |> Endpoint
+--node : Route.Path -> Endpoint
+--node path =
+--    "http://localhost:5001/api/v0/dag/get?arg="
+--        ++ path.cid
+--        ++ "/"
+--        ++ (String.join "/" <| List.map (\s -> "links/" ++ String.fromInt s) path.location)
+--        |> Endpoint
+--links : Route.Path -> Endpoint
+--links path =
+--    "http://localhost:5001/api/v0/dag/get?arg="
+--        ++ path.cid
+--        ++ "/links/"
+--        ++ (String.join "/" <| List.map (\s -> String.fromInt s ++ "/links") path.location)
+--        |> Endpoint
 
 
 config : Url -> Endpoint
