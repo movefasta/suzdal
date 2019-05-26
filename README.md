@@ -1,5 +1,7 @@
 # Suzdal network file service
 
+[![CircleCI](https://circleci.com/gh/movefasta/suzdal.svg?style=svg)](https://circleci.com/gh/movefasta/suzdal)
+
 ## Installation
 
 Clone this repo and run install script.

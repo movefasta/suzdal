@@ -14,7 +14,7 @@ const { Elm } = require('../elm/Main');
 var storageKey = "suzdal";
 var flags = localStorage.getItem(storageKey);
 
-console.log("Retrieved state: ", flags);
+console.log("Retrieved State: ", flags);
 
 
 var app = Elm.Main.init({
