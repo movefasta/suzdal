@@ -51,7 +51,9 @@ view maybepath page { title, content } =
                     row [ width fill, height fill ] (viewMenu path page :: [ content ])
 
                 Nothing ->
-                    el [ centerX, centerY ] <| html Icons.loader
+                    row [ width fill, height fill ] [ content ]
+
+        -- el [ centerX, centerY ] <| html Icons.loader
         ]
     }
 
@@ -72,7 +74,7 @@ viewMenu path page =
         ]
         [ linkTo Route.Home
         , linkTo <| Route.Tensor path
-        , linkTo Route.Settings
+        , el [ alignBottom ] <| linkTo Route.Settings
         ]
 
 

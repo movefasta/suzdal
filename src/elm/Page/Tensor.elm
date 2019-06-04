@@ -355,53 +355,6 @@ type Msg
 -- UPDATE
 
 
-keyAction : String -> Zipper Node -> Zipper Node
-keyAction code zipper =
-    let
-        label =
-            Zipper.label zipper
-
-        function =
-            case code of
-                "a" ->
-                    Zipper.previousSibling
-
-                "d" ->
-                    Zipper.nextSibling
-
-                "w" ->
-                    Zipper.parent
-
-                "s" ->
-                    Zipper.firstChild
-
-                "F2" ->
-                    \_ -> Just <| Zipper.replaceLabel { label | status = Editing } zipper
-
-                "Escape" ->
-                    \_ -> Just <| Zipper.replaceLabel { label | status = Completed } zipper
-
-                _ ->
-                    \_ -> Just zipper
-    in
-    case String.toInt code of
-        Just int ->
-            Zipper.replaceLabel { label | color = int } zipper
-
-        Nothing ->
-            zipper
-
-
-navigateZipper : (Zipper Node -> Maybe (Zipper Node)) -> Zipper Node -> Zipper Node
-navigateZipper fun zipper =
-    case fun zipper of
-        Just new ->
-            new
-
-        Nothing ->
-            zipper
-
-
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     let
@@ -504,7 +457,7 @@ update msg model =
                     [ Api.get (Endpoint.dagGet url node.cid) (GetNodeContent node.cid) contentDecoder
                     , Api.storeSettings newPath
                     , if List.isEmpty <| Zipper.children newZipper then
-                        getChildren url currentPath.cid { node | expanded = True }
+                        getChildren url newPath.cid { node | expanded = True }
                             |> Task.attempt AddTree
 
                       else
@@ -584,7 +537,7 @@ update msg model =
                       }
                     , Cmd.batch
                         [ Route.replaceUrl (Session.navKey model.session) (Route.Tensor newPath)
-                        , Api.get (Endpoint.content url model.path) (GetNodeContent model.path.cid) contentDecoder
+                        , Api.get (Endpoint.content url newPath) (GetNodeContent model.path.cid) contentDecoder
                         , Api.storeSettings newPath
                         , createLogEntry currentPath "классификатор" currentPath.cid newPath.cid
                         ]
@@ -1968,6 +1921,16 @@ pureContentEncoder node =
 -- HELPERS
 
 
+navigateZipper : (Zipper Node -> Maybe (Zipper Node)) -> Zipper Node -> Zipper Node
+navigateZipper fun zipper =
+    case fun zipper of
+        Just new ->
+            new
+
+        Nothing ->
+            zipper
+
+
 addPathsToTree : Zipper Node -> Zipper Node
 addPathsToTree zipper =
     case Zipper.forward zipper of
@@ -2048,3 +2011,40 @@ getContexts zipper acc =
 
         Nothing ->
             [ [ Zipper.label zipper ] ] ++ appendChildren
+
+
+keyAction : String -> Zipper Node -> Zipper Node
+keyAction code zipper =
+    let
+        label =
+            Zipper.label zipper
+
+        function =
+            case code of
+                "a" ->
+                    Zipper.previousSibling
+
+                "d" ->
+                    Zipper.nextSibling
+
+                "w" ->
+                    Zipper.parent
+
+                "s" ->
+                    Zipper.firstChild
+
+                "F2" ->
+                    \_ -> Just <| Zipper.replaceLabel { label | status = Editing } zipper
+
+                "Escape" ->
+                    \_ -> Just <| Zipper.replaceLabel { label | status = Completed } zipper
+
+                _ ->
+                    \_ -> Just zipper
+    in
+    case String.toInt code of
+        Just int ->
+            Zipper.replaceLabel { label | color = int } zipper
+
+        Nothing ->
+            zipper

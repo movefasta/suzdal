@@ -15,6 +15,7 @@ import Element.Border as Border
 import Element.Events as Event
 import Element.Font as Font
 import Element.Input as Input
+import Element.Lazy as Lazy exposing (lazy)
 import Email exposing (Email)
 import Html
 import Html.Attributes
@@ -72,6 +73,7 @@ type Connection
     = Online
     | Offline
     | Pending
+    | NotAsked
 
 
 type alias Profile =
@@ -92,7 +94,7 @@ type Status a
 type alias IpfsNodeID =
     { id : String
     , publicKey : String
-    , addresses : List String
+    , addresses : Maybe (List String)
     , agentVersion : String
     , protocolVersion : String
     }
@@ -114,9 +116,9 @@ init session =
       , peers = []
       }
     , Cmd.batch
-        [ Api.get (Endpoint.config <| Session.url session) GotConfig Api.NodeConfig.decoder
+        [ Api.fetchPeers ()
+        , Api.get (Endpoint.config <| Session.url session) GotConfig Api.NodeConfig.decoder
         , Api.get (Endpoint.id <| Session.url session) GotNodeID idDecoder
-        , Api.fetchPeers ()
         ]
     )
 
@@ -153,18 +155,7 @@ view model =
                 , Font.sansSerif
                 ]
             ]
-            [ column
-                [ width shrink, spacing 15, alignTop ]
-                [ row
-                    [ spacing 10 ]
-                    [ header "Список пиров"
-                    , el
-                        [ Event.onClick AddPeer, pointer, width <| px 22, height <| px 22 ]
-                      <|
-                        html Icons.plusCircle
-                    ]
-                , viewPeers model.peers
-                ]
+            [ viewPeers model.peers
             , column
                 [ width shrink, spacing 15, alignTop ]
                 [ header "Идентификационные данные", viewID model.id ]
@@ -209,7 +200,22 @@ onEnter msg =
 
 viewPeers : List Peer -> Element Msg
 viewPeers peers =
-    column [] <| List.map viewPeer peers
+    column
+        [ width shrink, spacing 15, alignTop ]
+        [ row
+            [ spacing 10 ]
+            [ header "Список пиров"
+            , el
+                [ Event.onClick AddPeer, pointer, width <| px 22, height <| px 22 ]
+              <|
+                html Icons.plusCircle
+            , el
+                [ Event.onClick <| CheckPeers peers, pointer, width <| px 22, height <| px 22 ]
+              <|
+                html Icons.refreshCcw
+            ]
+        , column [] <| List.map viewPeer peers
+        ]
 
 
 viewPeer : Peer -> Element Msg
@@ -225,26 +231,34 @@ viewPeer peer =
 
                 Pending ->
                     ( Colors.darkGrey, "Соединяем..." )
-    in
-    column
-        [ width fill
-        , paddingXY 8 12
-        , spacing 5
-        , mouseOver
-            [ Border.shadow
+
+                NotAsked ->
+                    ( Colors.white, "" )
+
+        shadow =
+            Border.shadow
                 { offset = ( 1, 1 )
                 , size = 1
                 , blur = 2
                 , color = lightGrey 1.0
                 }
-            ]
+    in
+    column
+        [ width fill
+        , paddingXY 8 12
+        , spacing 5
+        , Event.onMouseEnter <| Hover peer.id True
+        , Event.onMouseLeave <| Hover peer.id False
+        , if peer.editing then
+            shadow
+
+          else
+            mouseOver [ shadow ]
         ]
         [ row
             [ centerY
             , width fill
             , spacing 15
-            , Event.onMouseEnter <| Hover peer.id True
-            , Event.onMouseLeave <| Hover peer.id False
             ]
             [ el [] <|
                 html <|
@@ -263,22 +277,32 @@ viewPeer peer =
                 , el [ Font.color <| Colors.darkGrey 1.0 ] <| text peer.hash
                 ]
             , el
-                [ transparent <| not peer.hover
-                , Event.onClick <| UpdatePeer { peer | editing = not peer.editing }
+                [ transparent <| not (peer.hover || peer.editing)
+                , Event.onClick <|
+                    if peer.editing then
+                        SavePeer { peer | editing = False }
+
+                    else
+                        UpdatePeer { peer | editing = True }
                 , paddingXY 10 0
                 , pointer
                 ]
               <|
-                html Icons.edit
+                html <|
+                    if peer.editing then
+                        Icons.save
+
+                    else
+                        Icons.edit
             , el
-                [ transparent <| not peer.hover
+                [ transparent <| not (peer.hover || peer.editing)
                 , Event.onClick <| DeletePeer peer.id
                 , paddingXY 10 0
                 , alignRight
                 , pointer
                 ]
               <|
-                html Icons.delete
+                html Icons.trash2
             ]
         , if peer.editing then
             viewPeerProperties peer
@@ -375,7 +399,13 @@ viewID status =
             column
                 [ alignTop, width fill, height shrink, spacing 10 ]
                 [ viewIdProperty "Идентификатор узла" (text id.id)
-                , viewIdProperty "Адреса" <| column [ Font.size 10, spacing 3 ] <| List.map text id.addresses
+                , viewIdProperty "Адреса" <|
+                    case id.addresses of
+                        Just addresses ->
+                            column [ Font.size 10, spacing 3 ] <| List.map text addresses
+
+                        Nothing ->
+                            text "У Вас нет адресов. Возможно, Вы работаете в оффлайн режиме"
                 , viewIdProperty "Версия клиента" (text id.agentVersion)
                 , viewIdProperty "Версия протокола" (text id.protocolVersion)
                 ]
@@ -416,6 +446,8 @@ type Msg
     | UpdatePeer Peer
     | DeletePeer Int
     | NoOp
+    | CheckPeers (List Peer)
+    | SavePeer Peer
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -454,17 +486,31 @@ update msg model =
                 newpeers =
                     List.map toggle model.peers
             in
+            ( { model | peers = newpeers }, Api.storePeers (encodePeers newpeers) )
+
+        SavePeer peertosave ->
+            let
+                newpeers =
+                    List.map
+                        (\peer ->
+                            if peer.id == peertosave.id then
+                                peertosave
+
+                            else
+                                peer
+                        )
+                        model.peers
+            in
             ( { model | peers = newpeers }
-            , Cmd.batch
-                [ checkPeer updatedpeer.id updatedpeer.hash "" url
-                , Api.storePeers (encodePeers newpeers)
-                ]
+            , Cmd.batch [ checkPeer peertosave.id peertosave.hash "" url, Api.storePeers (encodePeers newpeers) ]
             )
 
         DeletePeer id ->
             let
                 newpeers =
-                    List.filter (\peer -> peer.id /= id) model.peers
+                    model.peers
+                        |> List.filter (\peer -> peer.id /= id)
+                        |> List.indexedMap (\i peer -> { peer | id = i })
             in
             ( { model | peers = newpeers }, Api.storePeers (encodePeers newpeers) )
 
@@ -477,7 +523,7 @@ update msg model =
                     { id = id
                     , hash = ""
                     , isRelay = False
-                    , connection = Pending
+                    , connection = NotAsked
                     , hover = False
                     , name = "Анонимный будетлянин"
                     , editing = True
@@ -532,12 +578,15 @@ update msg model =
         GotPeers result ->
             case result of
                 Ok peers ->
-                    ( { model | peers = peers }
-                    , Cmd.batch <| List.map (\peer -> checkPeer peer.id peer.hash "" url) peers
-                    )
+                    ( { model | peers = peers }, Cmd.none )
 
                 Err _ ->
-                    ( { model | peers = model.peers }, Cmd.none )
+                    ( model, Cmd.none )
+
+        CheckPeers peers ->
+            ( { model | peers = List.map (\p -> { p | connection = Pending }) peers }
+            , Cmd.batch <| List.map (\peer -> checkPeer peer.id peer.hash "" url) peers
+            )
 
         GotConfig result ->
             case result of
@@ -771,17 +820,6 @@ encodePeers list =
     Encode.list encoder list
 
 
-encodeIpfsNodeID : IpfsNodeID -> Encode.Value
-encodeIpfsNodeID x =
-    Encode.object
-        [ ( "ID", Encode.string x.id )
-        , ( "PublicKey", Encode.string x.publicKey )
-        , ( "Addresses", makeListEncoder Encode.string x.addresses )
-        , ( "AgentVersion", Encode.string x.agentVersion )
-        , ( "ProtocolVersion", Encode.string x.protocolVersion )
-        ]
-
-
 decodePeers : Decode.Decoder (List Peer)
 decodePeers =
     Decode.list decodePeer
@@ -793,34 +831,10 @@ decodePeer =
         |> required "id" Decode.int
         |> required "hash" Decode.string
         |> required "isRelay" Decode.bool
-        |> hardcoded Pending
+        |> hardcoded NotAsked
         |> hardcoded False
         |> hardcoded False
         |> required "name" Decode.string
-
-
-
---- encoder helpers
-
-
-makeListEncoder : (a -> Encode.Value) -> List a -> Encode.Value
-makeListEncoder f arr =
-    Encode.list f arr
-
-
-makeDictEncoder : (a -> Encode.Value) -> Dict String a -> Encode.Value
-makeDictEncoder f dict =
-    Encode.object (Dict.toList (Dict.map (\k -> f) dict))
-
-
-makeNullableEncoder : (a -> Encode.Value) -> Maybe a -> Encode.Value
-makeNullableEncoder f m =
-    case m of
-        Just x ->
-            f x
-
-        Nothing ->
-            Encode.null
 
 
 
@@ -832,7 +846,7 @@ idDecoder =
     Decode.succeed IpfsNodeID
         |> required "ID" Decode.string
         |> required "PublicKey" Decode.string
-        |> required "Addresses" (Decode.list Decode.string)
+        |> optional "Addresses" (Decode.nullable (Decode.list Decode.string)) Nothing
         |> required "AgentVersion" Decode.string
         |> required "ProtocolVersion" Decode.string
 
