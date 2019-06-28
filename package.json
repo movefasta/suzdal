@@ -6,8 +6,9 @@
   "author": "Igor Brylyov",
   "license": "MIT",
   "dependencies": {
-    "orbit-db": "^0.20.1",
-    "ipfs": "^0.35.0"
+    "@primer/css": "^12.4.0",
+    "ipfs": "^0.35.0",
+    "orbit-db": "^0.20.1"
   },
   "repository": {
     "type": "git",

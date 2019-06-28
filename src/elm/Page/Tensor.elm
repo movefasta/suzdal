@@ -94,6 +94,7 @@ init session path =
       , log = []
       , changes = Dict.empty
       , shownodeprops = False
+      , color = 0
       }
     , Cmd.batch
         [ Api.task "GET" (Endpoint.dagGet url path.cid) Http.emptyBody nodeDecoder
@@ -101,7 +102,7 @@ init session path =
             |> Task.andThen (\tree -> Task.succeed <| Zipper.fromTree <| expandFocus tree)
             |> Task.andThen (fetchZipper url <| pathlist path)
             |> Task.andThen (\z -> Task.succeed <| Zipper.tree z)
-            |> Task.attempt AddTree
+            |> Task.attempt (AddTree [])
         , Api.storeSettings path
         , Api.get (Endpoint.content url path) (GetNodeContent "init content request") contentDecoder
         , Task.perform (\_ -> PassedSlowLoadThreshold) Loading.slowThreshold
@@ -223,6 +224,7 @@ type alias Model =
     , log : List Entry
     , changes : Dict (List Int) Node
     , shownodeprops : Bool
+    , color : Float
     }
 
 
@@ -339,7 +341,7 @@ type Msg
     | DragEnter
     | DragLeave
     | GotSession Session.Session
-    | AddTree (Result Http.Error (Tree Node))
+    | AddTree (List Int) (Result Http.Error (Tree Node))
     | ClearProblemLog
     | AddBookmark Path String
     | AddLogEntry Entry
@@ -349,6 +351,7 @@ type Msg
     | UpdateParent (Result Http.Error Node)
     | KeyDowns String
     | PassedSlowLoadThreshold
+    | ChangeColor Float
 
 
 
@@ -368,6 +371,9 @@ update msg model =
             Session.url model.session
     in
     case msg of
+        ChangeColor hue ->
+            ( { model | color = hue }, Cmd.none )
+
         KeyDowns code ->
             ( { model
                 | zipper = keyAction code model.zipper
@@ -458,7 +464,7 @@ update msg model =
                     , Api.storeSettings newPath
                     , if List.isEmpty <| Zipper.children newZipper then
                         getChildren url newPath.cid { node | expanded = True }
-                            |> Task.attempt AddTree
+                            |> Task.attempt (AddTree node.location)
 
                       else
                         Cmd.none
@@ -469,12 +475,13 @@ update msg model =
             ( { model | problems = [] }, Cmd.none )
 
         -- just update zipper without any other actions
-        AddTree result ->
+        AddTree location result ->
             case result of
                 Ok tree ->
                     ( { model
                         | zipper =
-                            Zipper.replaceTree tree model.zipper
+                            setFocus location model.zipper
+                                |> Zipper.replaceTree tree
                                 |> setFocus model.path.location
                       }
                     , Cmd.none
@@ -765,21 +772,23 @@ view model =
                         [ width fill
                         , spacing 20
                         , paddingEach { edges | top = 10, bottom = 10, left = 20 }
-                        , height <| px 950
+                        , height fill
+                        , htmlAttribute (Html.Attributes.style "flex-shrink" "1")
+                        , clip
                         ]
                         [ viewAllContexts model
                         , viewContent model
                         ]
 
                 LoadingSlowly ->
-                    el [ width fill, height <| px 950, Background.color <| white 1.0 ] <|
+                    el [ width fill, height fill, Background.color <| white 1.0 ] <|
                         el [ centerX, centerY ] <|
                             html Icons.loader
 
                 _ ->
-                    el [ centerX, centerY, width fill, height <| px 950, Background.color <| white 1.0 ] <|
+                    el [ centerX, centerY, width fill, height fill, Background.color <| white 1.0 ] <|
                         none
-            , viewLog model.log
+            , el [ alignBottom, width fill ] <| viewLog model.log
             ]
     }
 
@@ -789,7 +798,7 @@ viewAllContexts model =
     let
         isCrumb a =
             if List.member a (getCrumbs model.zipper []) || (a.location == model.path.location) then
-                [ Background.color <| colorCodeConverter a.color 1.0
+                [ Background.color <| colorCodeConverter a.color model.color 1.0
                 , Border.color <| darkGrey 1.0
                 , Border.shadow
                     { offset = ( 0, 0 )
@@ -800,7 +809,7 @@ viewAllContexts model =
                 ]
 
             else
-                [ Background.color <| colorCodeConverter a.color 0.3, Border.color <| white 1.0, Border.width 2 ]
+                [ Background.color <| colorCodeConverter a.color model.color 0.3, Border.color <| white 1.0, Border.width 2 ]
     in
     el
         [ width (fill |> minimum 800)
@@ -823,6 +832,7 @@ viewAllContexts model =
                 [ button False Icons.plusCircle Append
                 , button False Icons.trash2 RemoveFocus
                 ]
+            , hslSlider model.color
             ]
 
 
@@ -835,7 +845,6 @@ viewLog entries =
             [ spacing 5
             , Font.size 12
             , width fill
-            , height fill
             , padding 7
             , Background.color <| black 0.8
             ]
@@ -933,37 +942,37 @@ viewCell path node =
                 [ text node.description ]
 
 
-viewNode : Hash -> Node -> Element Msg
-viewNode root node =
+viewNode : Hash -> Float -> Node -> Element Msg
+viewNode root hue node =
+    let
+        inputStyle =
+            [ width fill
+            , spacing 5
+            , padding 4
+            , Background.color <| lightGrey 1.0
+            , Border.widthEach { edges | bottom = 1 }
+            , Border.color <| darkGrey 1.0
+            , Border.rounded 0
+            , alignRight
+            , Font.bold
+            ]
+    in
     column
         [ width fill
-        , spacing 4
+        , spacing 10
         , Background.color <| lightGrey 1.0
         , Border.rounded 5
         , padding 10
         ]
-        [ link
-            [ Border.color <| black 1.0
-            , Font.underline
-            , padding 5
-            , width fill
-            ]
-            { url = Route.pathToUrl { cid = root, location = node.location }
-            , label = el [ Font.size 10 ] <| text "Абсолютная ссылка на ячейку"
-            }
-        , Input.text
-            [ width fill
-            , spacing 5
-            ]
+        [ Input.text
+            inputStyle
             { onChange = \new -> UpdateFocus { node | cid = new }
             , text = node.cid
             , placeholder = Just <| Input.placeholder [] <| text "Идентификатор контента - хэш"
             , label = Input.labelAbove [] <| el [ Font.size 10 ] <| text "Адрес файлов"
             }
         , Input.text
-            [ width fill
-            , spacing 5
-            ]
+            inputStyle
             { onChange = \new -> UpdateFocus { node | links = new }
             , text = node.links
             , placeholder = Just <| Input.placeholder [] <| text "Ссылки"
@@ -983,7 +992,7 @@ viewNode root node =
                             [ width <| px 30
                             , height <| px 25
                             , Border.widthEach { bottom = 3, left = 0, right = 0, top = 0 }
-                            , Background.color <| colorCodeConverter i 1.0
+                            , Background.color <| colorCodeConverter i hue 1.0
                             , Border.color <|
                                 case x of
                                     Input.Idle ->
@@ -1003,6 +1012,15 @@ viewNode root node =
                         (\code ->
                             Input.optionWith code (option code)
                         )
+            }
+        , link
+            [ Border.color <| black 1.0
+            , Font.underline
+            , padding 5
+            , width fill
+            ]
+            { url = Route.pathToUrl { cid = root, location = node.location }
+            , label = el [ Font.size 10 ] <| text "Абсолютная ссылка на ячейку"
             }
         ]
 
@@ -1040,66 +1058,56 @@ viewContent model =
                 |> maximum 800
                 |> minimum 400
             )
-        , alignTop
+        , height fill
+        , paddingEach { edges | right = 28, left = 15 }
+        , spacing 5
         ]
-        [ column
-            [ width fill
-            , spacing 5
-            , paddingEach { edges | right = 28, left = 15 }
-            , height fill
-            ]
-            [ case model.content of
-                Success content ->
-                    column
-                        [ height <| px 880
-                        , width fill
-                        ]
-                        [ row
-                            [ width fill ]
-                            [ el [ alignLeft ] <| button False Icons.fileText (AddText content)
-                            , el [ alignLeft ] <| button False Icons.filePlus Pick
-                            , el [ alignLeft ] <|
-                                button
-                                    False
-                                    (if model.shownodeprops then
-                                        Icons.eyeOff
+    <|
+        case model.content of
+            Success content ->
+                [ row
+                    [ width fill, alignTop ]
+                    [ el [ alignLeft ] <| button False Icons.fileText (AddText content)
+                    , el [ alignLeft ] <| button False Icons.filePlus Pick
+                    , el [ alignLeft ] <|
+                        button
+                            False
+                            (if model.shownodeprops then
+                                Icons.eyeOff
 
-                                     else
-                                        Icons.eye
-                                    )
-                                    InvertShowNodeProps
-                            , el
-                                [ alignRight, transparent (List.isEmpty content) ]
-                              <|
-                                button False Icons.trash2 <|
-                                    Perform RemoveAll
-                            ]
-                        , if model.shownodeprops then
-                            viewNode model.path.cid node
+                             else
+                                Icons.eye
+                            )
+                            InvertShowNodeProps
+                    , el
+                        [ alignRight, transparent (List.isEmpty content) ]
+                      <|
+                        button False Icons.trash2 <|
+                            Perform RemoveAll
+                    ]
+                , if model.shownodeprops then
+                    viewNode model.path.cid model.color node
 
-                          else
-                            none
-                        , paragraph
-                            [ paddingEach { edges | top = 20, bottom = 7 }
-                            , Border.color <| darkGrey 1.0
-                            , Border.widthEach { edges | bottom = 2 }
-                            , Font.size 24
-                            ]
-                            [ text node.description ]
-                        , column
-                            [ width fill, scrollbarY, alignTop, paddingEach { edges | right = 10 } ]
-                          <|
-                            List.map (viewNodeAsFile <| Session.url model.session) content
-                        ]
-
-                LoadingSlowly ->
-                    el [ centerX, centerY, height fill ] <|
-                        html Icons.loader
-
-                _ ->
+                  else
                     none
-            ]
-        ]
+                , paragraph
+                    [ paddingEach { edges | top = 20, bottom = 7 }
+                    , Border.color <| darkGrey 1.0
+                    , Border.widthEach { edges | bottom = 2 }
+                    , Font.size 24
+                    ]
+                    [ text node.description ]
+                , column
+                    [ scrollbarY, width fill, height fill, paddingEach { edges | right = 10 } ]
+                  <|
+                    List.map (viewNodeAsFile <| Session.url model.session) content
+                ]
+
+            LoadingSlowly ->
+                [ el [ centerX, centerY, height fill ] <| html Icons.loader ]
+
+            _ ->
+                [ none ]
 
 
 edges =
@@ -1174,6 +1182,12 @@ viewNodeAsFile url node =
                     , Border.color <| darkGrey 1.0
                     , Event.onDoubleClick <| Perform <| Set { node | status = Editing }
                     , Event.onClick <| Perform <| Set { node | status = Completed }
+                    , Border.shadow
+                        { offset = ( 2, 2 )
+                        , size = 1
+                        , blur = 3
+                        , color = lightGrey 1.0
+                        }
                     ]
 
                 Editing ->
@@ -1188,7 +1202,6 @@ viewNodeAsFile url node =
                     , Border.width 1
                     , Border.dashed
                     , Border.color <| white 1.0
-                    , mouseOver [ Background.color <| lightGrey 0.2 ]
                     ]
     in
     column
@@ -1197,17 +1210,43 @@ viewNodeAsFile url node =
         , el style <|
             case node.mimetype of
                 Just (Mime.Video _) ->
-                    el [ width fill ] <|
-                        html <|
+                    column
+                        [ width fill
+                        , Font.color <| lightGrey 1.0
+                        , mouseOver [ Font.color <| black 1.0 ]
+                        ]
+                        [ el [ width fill, padding 5, spacing 5, clip, Font.italic ] <| text node.name
+                        , html <|
                             Html.video
                                 [ Html.Attributes.src <| Endpoint.file url node.cid
                                 , Html.Attributes.controls True
                                 , Html.Attributes.style "width" "100%"
                                 ]
                                 []
+                        ]
+
+                Just (Mime.Audio _) ->
+                    column
+                        [ width fill
+                        , Font.color <| darkGrey 1.0
+                        , mouseOver [ Font.color <| black 1.0 ]
+                        ]
+                        [ el [ width fill, padding 5, spacing 5, clip, Font.italic, Font.center ] <| text node.name
+                        , html <|
+                            Html.audio
+                                [ Html.Attributes.src <| Endpoint.file url node.cid
+                                , Html.Attributes.controls True
+                                , Html.Attributes.style "width" "100%"
+                                ]
+                                []
+                        ]
 
                 Just (Mime.Image _) ->
-                    image [ width fill ]
+                    image
+                        [ width fill
+                        , Font.color <| lightGrey 1.0
+                        , mouseOver [ Font.color <| black 1.0 ]
+                        ]
                         { src = Endpoint.file url node.cid
                         , description = node.name
                         }
@@ -1237,7 +1276,7 @@ viewNodeAsFile url node =
 
                     else
                         paragraph
-                            ([ width fill, padding 5, spacing 5, clip ] ++ fontBy node.size)
+                            ([ width fill, padding 5, spacing 5, clip, mouseOver [ Background.color <| lightGrey 0.2 ] ] ++ fontBy node.size)
                             [ text node.description ]
 
                 _ ->
@@ -1351,6 +1390,11 @@ viewControls model =
                     Input.text
                         [ width fill
                         , spacing 5
+                        , padding 4
+                        , Border.widthEach { edges | bottom = 2 }
+                        , Border.color <| darkGrey 1.0
+                        , Font.color <| darkGrey 1.0
+                        , Border.rounded 0
                         ]
                         { onChange = UpdateQuery
                         , text = string
@@ -1403,7 +1447,6 @@ viewTable path tree =
         , width fill
         , spacing 5
         , alignTop
-        , scrollbarY
         ]
         [ viewCell path (Tree.label tree)
             |> el
@@ -1803,48 +1846,80 @@ contentSize content =
         |> List.sum
 
 
-colorCodeConverter : Int -> Float -> Color
-colorCodeConverter i alpha =
-    let
-        color =
-            case i of
-                0 ->
-                    yellow
+hslSlider : Float -> Element Msg
+hslSlider hue =
+    Input.slider
+        [ height (px 30)
+        , behindContent
+            (el
+                [ width fill
+                , height (px 2)
+                , centerY
+                , Background.color <| lightGrey 1.0
+                , Border.rounded 2
+                ]
+                none
+            )
+        ]
+        { onChange = ChangeColor
+        , label = Input.labelAbove [] <| text <| "Цветовой регулятор ( " ++ Debug.toString hue ++ " )"
+        , min = 0
+        , max = 59.9999999
+        , step = Nothing
+        , value = hue
+        , thumb =
+            Input.defaultThumb
+        }
 
-                1 ->
-                    orange
 
-                2 ->
-                    violet
-
-                3 ->
-                    blue
-
-                4 ->
-                    cyan
-
-                5 ->
-                    green
-
-                6 ->
-                    lightGrey
-
-                7 ->
-                    darkGrey
-
-                8 ->
-                    black
-
-                9 ->
-                    white
-
-                _ ->
-                    white
-    in
-    color alpha
+colorCodeConverter : Int -> Float -> Float -> Color
+colorCodeConverter i hue alpha =
+    fromHsl (degrees <| hue + 60 * toFloat i) 0.92 0.5 alpha
 
 
 
+{-
+   colorCodeConverter : Int -> Float -> Color
+   colorCodeConverter i alpha =
+       let
+           color =
+               case i of
+                   0 ->
+                       yellow
+
+                   1 ->
+                       orange
+
+                   2 ->
+                       violet
+
+                   3 ->
+                       blue
+
+                   4 ->
+                       cyan
+
+                   5 ->
+                       green
+
+                   6 ->
+                       lightGrey
+
+                   7 ->
+                       darkGrey
+
+                   8 ->
+                       black
+
+                   9 ->
+                       white
+
+                   _ ->
+                       white
+       in
+       color alpha
+
+-}
 -- ENCODERS
 
 

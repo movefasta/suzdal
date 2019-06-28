@@ -44,14 +44,19 @@ view maybepath page { title, content } =
                     }
                 ]
             }
-            []
+            [ height fill ]
           <|
-            case maybepath of
-                Just path ->
-                    row [ width fill, height fill ] (viewMenu path page :: [ content ])
+            row
+                [ width fill
+                , height fill
+                ]
+            <|
+                case maybepath of
+                    Just path ->
+                        viewMenu path page :: [ content ]
 
-                Nothing ->
-                    row [ width fill, height fill ] [ content ]
+                    Nothing ->
+                        [ content ]
 
         -- el [ centerX, centerY ] <| html Icons.loader
         ]
@@ -71,10 +76,19 @@ viewMenu path page =
         , spacing 10
         , Font.size 14
         , Background.color <| black 0.8
+
+        --, Border.color <| black 0.8
+        --, Border.widthEach { edges | right = 3 }
+        , Border.shadow
+            { offset = ( 0, 0 )
+            , size = 2
+            , blur = 7
+            , color = darkGrey 1.0
+            }
         ]
         [ linkTo Route.Home
         , linkTo <| Route.Tensor path
-        , el [ alignBottom ] <| linkTo Route.Settings
+        , linkTo Route.Settings
         ]
 
 
@@ -135,6 +149,14 @@ processPath path fun acc =
 
         [] ->
             acc
+
+
+edges =
+    { top = 0
+    , right = 0
+    , bottom = 0
+    , left = 0
+    }
 
 
 

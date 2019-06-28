@@ -1,9 +1,6 @@
 port module Api exposing (Hash, addServerError, application, check, cidDecoder, decodeErrors, fetchPeers, get, getPeers, pathDecoder, pathEncoder, post, put, setStorage, settings, storePeers, storeSettings, task, viewerChanges)
 
 {-| This module is responsible for communicating to the IPFS API.
-
-It exposes an opaque Endpoint type which is guaranteed to point to the correct URL.
-
 -}
 
 import Api.Endpoint as Endpoint exposing (Endpoint)
@@ -45,6 +42,10 @@ type alias Hash =
 cidDecoder : Decode.Decoder Hash
 cidDecoder =
     Decode.at [ "Cid", "/" ] Decode.string
+
+
+
+-- PORTS
 
 
 port onStoreChange : (Value -> msg) -> Sub msg
