@@ -1,5 +1,6 @@
 module Page.Tensor exposing (Model, Msg, init, subscriptions, toSession, update, view)
 
+import Animation
 import Api exposing (Hash)
 import Api.Endpoint as Endpoint exposing (Endpoint)
 import Browser
@@ -62,6 +63,7 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
         [ Events.onKeyPress (Decode.map KeyDowns keyDecoder)
+        , Animation.subscription Animate [ model.style ]
         ]
 
 
@@ -95,6 +97,7 @@ init session path =
       , changes = Dict.empty
       , shownodeprops = False
       , color = 0
+      , style = Animation.style [ Animation.opacity 0.0 ]
       }
     , Cmd.batch
         [ Api.task "GET" (Endpoint.dagGet url path.cid) Http.emptyBody nodeDecoder
@@ -225,6 +228,7 @@ type alias Model =
     , changes : Dict (List Int) Node
     , shownodeprops : Bool
     , color : Float
+    , style : Animation.State
     }
 
 
@@ -352,6 +356,13 @@ type Msg
     | KeyDowns String
     | PassedSlowLoadThreshold
     | ChangeColor Float
+    | Animate Animation.Msg
+
+
+type alias Styles =
+    { open : List Animation.Property
+    , closed : List Animation.Property
+    }
 
 
 
@@ -371,6 +382,13 @@ update msg model =
             Session.url model.session
     in
     case msg of
+        Animate animMsg ->
+            ( { model
+                | style = Animation.update animMsg model.style
+              }
+            , Cmd.none
+            )
+
         ChangeColor hue ->
             ( { model | color = hue }, Cmd.none )
 
@@ -383,7 +401,31 @@ update msg model =
             )
 
         InvertShowNodeProps ->
-            ( { model | shownodeprops = not model.shownodeprops }, Cmd.none )
+            ( { model
+                | shownodeprops = not model.shownodeprops
+                , style =
+                    Animation.interrupt
+                        [ Animation.toWith
+                            (Animation.spring
+                                { stiffness = 400
+                                , damping = 23
+                                }
+                            )
+                          <|
+                            if model.shownodeprops then
+                                [ Animation.opacity 0.0
+                                , Animation.height <| Animation.px 0.0
+                                ]
+
+                            else
+                                [ Animation.opacity 1.0
+                                , Animation.height <| Animation.px 200.0
+                                ]
+                        ]
+                        model.style
+              }
+            , Cmd.none
+            )
 
         --ExpandAll ->
         --    ( model, getTree model.root 2 (Tree.tree { label | expanded = True } []) |> Task.attempt AddTree )
@@ -458,6 +500,8 @@ update msg model =
                     | zipper = newZipper
                     , session = Session.update model.session newPath url
                     , path = newPath
+                    , style = Animation.interrupt [ Animation.set [ Animation.opacity 0.0 ] ] model.style
+                    , content = Loading
                   }
                 , Cmd.batch
                     [ Api.get (Endpoint.dagGet url node.cid) (GetNodeContent node.cid) contentDecoder
@@ -558,7 +602,17 @@ update msg model =
         GetNodeContent hash result ->
             case result of
                 Ok nodes ->
-                    ( { model | content = Success <| List.indexedMap (\i a -> { a | id = i }) nodes }, Cmd.none )
+                    ( { model
+                        | content = Success <| List.indexedMap (\i a -> { a | id = i }) nodes
+                        , style =
+                            Animation.queue
+                                [ Animation.wait <| Time.millisToPosix 200
+                                , Animation.to [ Animation.opacity 1.0 ]
+                                ]
+                                model.style
+                      }
+                    , Cmd.none
+                    )
 
                 Err _ ->
                     ( { model | problems = [ ServerError <| "Ошибка запроса файлов (GetNodeContent Msg) по адресу " ++ hash ] }, Cmd.none )
@@ -823,7 +877,9 @@ viewAllContexts model =
             , getContexts model.zipper []
                 |> List.map
                     (\list ->
-                        List.map (\node -> el ([ width fill, height fill, centerY ] ++ isCrumb node) <| viewCell model.path node) list
+                        List.map
+                            (\node -> el ([ width fill, height fill, centerY ] ++ isCrumb node) <| viewCell model.path node)
+                            list
                             |> row [ width fill, height fill, spacing 5 ]
                     )
                 |> column [ width fill, spacing 5 ]
@@ -942,8 +998,8 @@ viewCell path node =
                 [ text node.description ]
 
 
-viewNode : Hash -> Float -> Node -> Element Msg
-viewNode root hue node =
+viewNode : Hash -> Float -> Node -> Animation.State -> Element Msg
+viewNode root hue node animstate =
     let
         inputStyle =
             [ width fill
@@ -956,14 +1012,20 @@ viewNode root hue node =
             , alignRight
             , Font.bold
             ]
+
+        animStyle =
+            Animation.render animstate
+                |> List.map htmlAttribute
     in
     column
-        [ width fill
-        , spacing 10
-        , Background.color <| lightGrey 1.0
-        , Border.rounded 5
-        , padding 10
-        ]
+        ([ width fill
+         , spacing 10
+         , Background.color <| lightGrey 1.0
+         , Border.rounded 5
+         , padding 10
+         ]
+            ++ animStyle
+        )
         [ Input.text
             inputStyle
             { onChange = \new -> UpdateFocus { node | cid = new }
@@ -1049,19 +1111,23 @@ viewContent model =
         node =
             Zipper.label model.zipper
 
-        tooltip str =
-            [ above <| el [ Background.color <| black 1.0, Font.color <| white 1.0 ] <| text str ]
+        style =
+            [ width
+                (fill
+                    |> maximum 800
+                    |> minimum 400
+                )
+            , height fill
+            , paddingEach { edges | right = 28, left = 15 }
+            , spacing 5
+            ]
+
+        animStyle =
+            Animation.render model.style
+                |> List.map htmlAttribute
     in
     column
-        [ width
-            (fill
-                |> maximum 800
-                |> minimum 400
-            )
-        , height fill
-        , paddingEach { edges | right = 28, left = 15 }
-        , spacing 5
-        ]
+        (style ++ animStyle)
     <|
         case model.content of
             Success content ->
@@ -1086,7 +1152,7 @@ viewContent model =
                             Perform RemoveAll
                     ]
                 , if model.shownodeprops then
-                    viewNode model.path.cid model.color node
+                    viewNode model.path.cid model.color node model.style
 
                   else
                     none
