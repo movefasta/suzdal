@@ -94,6 +94,18 @@ viewMenu path page =
 
 navbarLink : Page -> Route -> Element msg
 navbarLink page route =
+    let
+        ( icon, text ) =
+            case route of
+                Route.Home ->
+                    ( Icons.home, "Домашняя страница" )
+
+                Route.Tensor path ->
+                    ( Icons.grid, "Трактование" )
+
+                Route.Settings ->
+                    ( Icons.settings, "Настройки" )
+    in
     link
         [ htmlAttribute <|
             Html.Attributes.style "color" <|
@@ -104,17 +116,7 @@ navbarLink page route =
                     "white"
         ]
         { url = Route.routeToString route
-        , label =
-            html <|
-                case route of
-                    Route.Home ->
-                        Icons.home
-
-                    Route.Tensor path ->
-                        Icons.grid
-
-                    Route.Settings ->
-                        Icons.settings
+        , label = html icon
         }
 
 

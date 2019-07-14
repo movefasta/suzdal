@@ -11,7 +11,11 @@ import Task exposing (Task)
 
 icon : String -> Element msg
 icon desc =
-    image [ width <| px 64, height <| px 64 ] { src = "../" ++ Asset.src Asset.loading, description = desc }
+    column
+        [ spacing 40 ]
+        [ image [ centerX, width <| px 64, height <| px 64 ] { src = "../" ++ Asset.src Asset.loading, description = desc }
+        , el [ centerX ] <| text desc
+        ]
 
 
 error : String -> Element msg

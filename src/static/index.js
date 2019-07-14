@@ -1,6 +1,9 @@
 'use strict';
 
-const IPFS = require('ipfs')
+require('./assets/css/primer-tooltips.css');
+require('./assets/images/loading.svg');
+
+const IPFS = require('ipfs');
 const OrbitDB = require('orbit-db');
 
 const { Elm } = require('../elm/Main');

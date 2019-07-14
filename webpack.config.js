@@ -69,7 +69,10 @@ var common = {
             {
                 test: /\.(ttf|eot|svg)(\?v=[0-9]\.[0-9]\.[0-9])?$/,
                 exclude: [/elm-stuff/, /node_modules/],
-                loader: "file-loader"
+                loader: "file-loader",
+                options: {
+                    name: '[name].[ext]'
+                }
             },
             {
                 test: /\.(jpe?g|png|gif|svg)$/i,
@@ -110,7 +113,7 @@ if (MODE === "development") {
         },
         devServer: {
             inline: true,
-            contentBase: path.join(__dirname, './src/static'),
+            contentBase: path.join(__dirname, './dist'),
             compress: true,
             port: 3000
             }

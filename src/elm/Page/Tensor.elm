@@ -62,14 +62,10 @@ toSession model =
 subscriptions : Model -> Sub Msg
 subscriptions model =
     Sub.batch
-        [ Events.onKeyPress (Decode.map KeyDowns keyDecoder)
-        , Animation.subscription Animate [ model.style ]
+        [ Events.onKeyPress (Decode.map (\x -> KeyDowns x model.zipper) keyDecoder)
+
+        --, Animation.subscription Animate [ model.style ]
         ]
-
-
-keyDecoder : Decode.Decoder String
-keyDecoder =
-    Decode.field "key" Decode.string
 
 
 
@@ -88,8 +84,7 @@ init session path =
     ( { session = session
       , problems = []
       , root = Success ( Completed, path.cid )
-      , zipper = Zipper.fromTree <| initTree []
-      , upload = []
+      , zipper = Loading
       , path = path
       , hover = False
       , content = Loading
@@ -97,108 +92,19 @@ init session path =
       , changes = Dict.empty
       , shownodeprops = False
       , color = 0
-      , style = Animation.style [ Animation.opacity 0.0 ]
+
+      --, style = Animation.style [ Animation.opacity 0.0 ]
       }
     , Cmd.batch
         [ Api.task "GET" (Endpoint.dagGet url path.cid) Http.emptyBody nodeDecoder
             |> Task.andThen (getChildren url path.cid)
             |> Task.andThen (\tree -> Task.succeed <| Zipper.fromTree <| expandFocus tree)
             |> Task.andThen (fetchZipper url <| pathlist path)
-            |> Task.andThen (\z -> Task.succeed <| Zipper.tree z)
-            |> Task.attempt (AddTree [])
+            |> Task.attempt GotDAG
         , Api.storeSettings path
-        , Api.get (Endpoint.content url path) (GetNodeContent "init content request") contentDecoder
         , Task.perform (\_ -> PassedSlowLoadThreshold) Loading.slowThreshold
         ]
     )
-
-
-fetchZipper : Url -> List Path -> Zipper Node -> Task Http.Error (Zipper Node)
-fetchZipper url paths zipper =
-    case paths of
-        x :: xs ->
-            let
-                focus =
-                    setFocus x.location zipper
-            in
-            Zipper.label focus
-                |> getChildren url x.cid
-                |> Task.andThen
-                    (\tree ->
-                        Zipper.replaceTree tree focus
-                            |> Zipper.mapLabel (\label -> { label | expanded = not label.expanded })
-                            |> fetchZipper url xs
-                    )
-
-        [] ->
-            Zipper.root zipper
-                |> Task.succeed
-
-
-pathlist : Path -> List Path
-pathlist path =
-    Page.processPath { path | location = List.reverse path.location } (\x -> x) []
-
-
-
--- CONSTANTS
-
-
-initNode : List Int -> Node
-initNode location =
-    { id = 0
-    , status = Completed
-    , name = "ROOT"
-    , cid = ""
-    , links = ""
-    , size = 0
-    , description = "Кругозор"
-    , mimetype = Nothing
-    , color = 0
-    , location = location
-    , expanded = True
-    }
-
-
-initText : Node
-initText =
-    { id = 0
-    , status = Editing
-    , name = ""
-    , cid = ""
-    , links = ""
-    , size = 0
-    , description = ""
-    , mimetype = Just (Mime.Text Mime.PlainText)
-    , color = 0
-    , location = []
-    , expanded = True
-    }
-
-
-initTree : List Int -> Tree Node
-initTree location =
-    Tree.tree
-        (initNode location)
-        []
-
-
-appendedTree : List Int -> Tree Node
-appendedTree newLoc =
-    Tree.tree
-        { id = 0
-        , status = Completed
-        , name = "0"
-        , cid = "zdpuAtQy7GSHNcZxdBfmtowdL1d2WAFjJBwb6WAEfFJ6T4Gbi" --empty content list
-        , links = "zdpuAtQy7GSHNcZxdBfmtowdL1d2WAFjJBwb6WAEfFJ6T4Gbi" --empty links list
-        , size = 0
-        , description = ""
-        , mimetype = Nothing
-        , color = 0
-        , location = newLoc
-        , expanded = True
-        }
-        []
 
 
 
@@ -219,16 +125,16 @@ type alias Model =
     { session : Session
     , problems : List Problem
     , root : Remote ( Status, Hash )
-    , zipper : Zipper Node
-    , upload : List File
+    , zipper : Remote DAG
     , path : Path
     , hover : Bool
-    , content : Remote (List Node)
+    , content : Remote Content
     , log : List Entry
     , changes : Dict (List Int) Node
     , shownodeprops : Bool
     , color : Float
-    , style : Animation.State
+
+    --, style : Animation.State
     }
 
 
@@ -247,12 +153,14 @@ type alias Node =
     }
 
 
-type alias IpfsNodeID =
-    { id : String
-    , publicKey : String
-    , addresses : List String
-    , agentVersion : String
-    , protocolVersion : String
+type alias UploadedFile =
+    { id : Id
+    , status : Status
+    , name : String
+    , cid : Hash
+    , size : Int
+    , description : String
+    , mimetype : Maybe Mime.MimeType
     }
 
 
@@ -264,6 +172,7 @@ type Status
     | Selected
     | Waiting
     | Changed
+    | GotProgress
 
 
 type Remote a
@@ -327,21 +236,29 @@ type alias Id =
     Int
 
 
+type alias DAG =
+    Zipper Node
+
+
+type alias Content =
+    List Node
+
+
 type Msg
     = NoOp
     | UpdateQuery Hash
-    | DagPut Encode.Value
+    | DagPut DAG
     | GetRootHash (Result Http.Error Hash)
-    | GetContentHash Int (Result Http.Error Hash)
-    | GetNodeContent String (Result Http.Error (List Node))
-    | AddText (List Node)
+    | GetContentHash Node (Result Http.Error Hash)
+    | GetNodeContent String (Result Http.Error Content)
+    | AddText Content
     | ChangeFocus Node
     | UpdateFocus Node
     | DownloadAsJson String
-    | Pick
-    | GotFiles File (List File)
-    | UpdateContent (List Node) (Result Http.Error (List Node))
-    | Perform Action
+    | Pick Node Content
+    | GotFiles Node Content File (List File)
+      --    | UpdateContent Content (Result Http.Error Content)
+    | Perform Node Action
     | DragEnter
     | DragLeave
     | GotSession Session.Session
@@ -349,14 +266,18 @@ type Msg
     | ClearProblemLog
     | AddBookmark Path String
     | AddLogEntry Entry
-    | Append
-    | RemoveFocus
+    | GotDAG (Result Http.Error DAG)
+    | Append DAG
+    | RemoveFocus DAG
     | InvertShowNodeProps
-    | UpdateParent (Result Http.Error Node)
-    | KeyDowns String
+    | UpdateParent DAG (Result Http.Error Node)
+    | KeyDowns String (Remote DAG)
     | PassedSlowLoadThreshold
     | ChangeColor Float
-    | Animate Animation.Msg
+
+
+
+--| Animate Animation.Msg
 
 
 type alias Styles =
@@ -372,9 +293,6 @@ type alias Styles =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     let
-        label =
-            Zipper.label model.zipper
-
         currentPath =
             model.path
 
@@ -382,72 +300,69 @@ update msg model =
             Session.url model.session
     in
     case msg of
-        Animate animMsg ->
-            ( { model
-                | style = Animation.update animMsg model.style
-              }
-            , Cmd.none
-            )
+        {- Animate animMsg ->
+           ( { model
+               | style = Animation.update animMsg model.style
+             }
+           , Cmd.none
+           )
+        -}
+        GotDAG result ->
+            case result of
+                Ok dag ->
+                    ( { model | zipper = Success <| setFocus model.path.location dag }
+                    , Api.get (Endpoint.content url currentPath) (GetNodeContent "init content request") contentDecoder
+                    )
+
+                Err _ ->
+                    ( { model | problems = [ ServerError "Ошибка загрузки классификатора" ] }, Cmd.none )
 
         ChangeColor hue ->
             ( { model | color = hue }, Cmd.none )
 
-        KeyDowns code ->
-            ( { model
-                | zipper = keyAction code model.zipper
-                , changes = Dict.insert label.location label model.changes
-              }
+        KeyDowns code remotezipper ->
+            ( case remotezipper of
+                Success zipper ->
+                    let
+                        label =
+                            Zipper.label zipper
+                    in
+                    { model
+                        | zipper = Success <| keyAction code zipper
+                        , changes = Dict.insert label.location label model.changes
+                    }
+
+                _ ->
+                    model
             , Cmd.none
             )
 
         InvertShowNodeProps ->
-            ( { model
-                | shownodeprops = not model.shownodeprops
-                , style =
-                    Animation.interrupt
-                        [ Animation.toWith
-                            (Animation.spring
-                                { stiffness = 400
-                                , damping = 23
-                                }
-                            )
-                          <|
-                            if model.shownodeprops then
-                                [ Animation.opacity 0.0
-                                , Animation.height <| Animation.px 0.0
-                                ]
-
-                            else
-                                [ Animation.opacity 1.0
-                                , Animation.height <| Animation.px 200.0
-                                ]
-                        ]
-                        model.style
-              }
+            ( { model | shownodeprops = not model.shownodeprops }
             , Cmd.none
             )
 
         --ExpandAll ->
         --    ( model, getTree model.root 2 (Tree.tree { label | expanded = True } []) |> Task.attempt AddTree )
-        RemoveFocus ->
-            case removeNode model.zipper of
+        RemoveFocus zipper ->
+            case Zipper.removeTree zipper of
                 Just parent ->
                     let
                         node =
                             Zipper.label parent
                     in
-                    ( { model | zipper = parent, path = { currentPath | location = node.location } }
-                    , updateParent (Endpoint.dagPut url) parent |> Task.attempt UpdateParent
+                    ( { model | zipper = Success parent, path = { currentPath | location = node.location } }
+                    , updateParent (Endpoint.dagPut url) parent |> Task.attempt (UpdateParent parent)
                     )
 
                 Nothing ->
                     ( { model | problems = [ ServerError "Нечего больше удалять! (RemoveFocus Msg)" ] }, Cmd.none )
 
-        UpdateParent result ->
+        UpdateParent parent result ->
             case result of
                 Ok node ->
                     ( { model
-                        | zipper = setFocus node.location model.zipper |> Zipper.replaceLabel node
+                        | zipper = Success (Zipper.replaceLabel node parent)
                         , changes = Dict.insert node.location node model.changes
                       }
                     , Api.get (Endpoint.dagGet url node.cid) (GetNodeContent node.cid) contentDecoder
@@ -456,18 +371,18 @@ update msg model =
                 Err _ ->
                     ( { model | problems = [ ServerError "Ошибка при обновлении поля links у родителя (UpdateParent Msg)" ] }, Cmd.none )
 
-        Append ->
+        Append zipper ->
             let
                 child =
-                    Zipper.children model.zipper
+                    Zipper.children zipper
                         |> List.length
                         |> List.singleton
-                        |> List.append label.location
+                        |> List.append (.location <| Zipper.label zipper)
                         |> appendedTree
                         |> Tree.label
             in
             ( { model
-                | zipper = appendChild model.zipper
+                | zipper = updateRemote appendChild model.zipper
                 , changes = Dict.insert child.location child model.changes
               }
             , Cmd.none
@@ -478,14 +393,20 @@ update msg model =
 
         ChangeFocus node ->
             let
-                newZipper =
-                    setFocus node.location model.zipper
-                        |> Zipper.replaceLabel { node | expanded = True }
+                ( notHaveChildren, newZipper ) =
+                    case model.zipper of
+                        Success zipper ->
+                            ( List.isEmpty <| Zipper.children <| setFocus node.location zipper
+                            , Success <| Zipper.replaceLabel node <| setFocus node.location zipper
+                            )
+
+                        _ ->
+                            ( False, model.zipper )
 
                 newPath =
                     { currentPath | location = node.location }
             in
-            if label.location == node.location then
+            if node.location == model.path.location then
                 ( { model | zipper = newZipper }
                 , if node.status == Editing then
                     Dom.focus (Route.locationToString "/" node.location)
@@ -500,13 +421,13 @@ update msg model =
                     | zipper = newZipper
                     , session = Session.update model.session newPath url
                     , path = newPath
-                    , style = Animation.interrupt [ Animation.set [ Animation.opacity 0.0 ] ] model.style
-                    , content = Loading
+
+                    --, style = Animation.interrupt [ Animation.set [ Animation.opacity 0.0 ] ] model.style
                   }
                 , Cmd.batch
                     [ Api.get (Endpoint.dagGet url node.cid) (GetNodeContent node.cid) contentDecoder
                     , Api.storeSettings newPath
-                    , if List.isEmpty <| Zipper.children newZipper then
+                    , if notHaveChildren then
                         getChildren url newPath.cid { node | expanded = True }
                             |> Task.attempt (AddTree node.location)
 
@@ -522,14 +443,13 @@ update msg model =
         AddTree location result ->
             case result of
                 Ok tree ->
-                    ( { model
-                        | zipper =
-                            setFocus location model.zipper
+                    let
+                        replace z =
+                            setFocus location z
                                 |> Zipper.replaceTree tree
                                 |> setFocus model.path.location
-                      }
-                    , Cmd.none
-                    )
+                    in
+                    ( { model | zipper = updateRemote replace model.zipper }, Cmd.none )
 
                 Err _ ->
                     ( { model | problems = [ ServerError "Не удалось загрузить дерево. Попробуйте ещё раз" ] }, Cmd.none )
@@ -543,33 +463,69 @@ update msg model =
         DragLeave ->
             ( { model | hover = False }, Cmd.none )
 
-        Pick ->
-            ( model, File.Select.files [ "*" ] GotFiles )
+        Pick node content ->
+            ( model, File.Select.files [ "*" ] (GotFiles node content) )
 
-        GotFiles file files ->
+        GotFiles node content file files ->
             let
-                decoder =
-                    objLinkDecoder
-                        |> Decode.andThen linkToNodeDecoder
-
-                upload body =
-                    Api.task "POST" (Endpoint.add <| Session.url model.session) (Http.multipartBody [ Http.filePart "file" body ]) decoder
-                        |> Task.andThen
-                            (\x ->
-                                Task.succeed
-                                    { x | mimetype = File.mime file |> Mime.parseMimeType }
-                            )
+                size =
+                    List.map File.size (file :: files)
+                        |> List.sum
+                        |> (+) (contentSize content)
             in
-            ( { model | upload = [], hover = False }
-            , case model.content of
-                Success content ->
-                    List.map upload (file :: files)
-                        |> Task.sequence
-                        |> Task.attempt (UpdateContent content)
-
-                _ ->
-                    Cmd.none
+            ( { model | hover = False }
+            , List.map (uploadFile <| Endpoint.add <| Session.url model.session) (file :: files)
+                |> Task.sequence
+                |> Task.andThen
+                    (\list ->
+                        let
+                            body =
+                                List.indexedMap (\i a -> { a | id = i }) (list ++ content)
+                                    |> Encode.list contentEncoder
+                                    |> createBodyFrom
+                        in
+                        Api.task "POST" (Endpoint.dagPut url) body (Decode.at [ "Cid", "/" ] Decode.string)
+                    )
+                |> Task.attempt (GetContentHash { node | size = size })
             )
+
+        {-
+           UpdateContent content result ->
+               case result of
+                   Ok list ->
+                       ( { model | content = Success <| List.indexedMap (\i a -> { a | id = i }) (list ++ content) }
+                       , let
+                           body =
+                               Encode.list contentEncoder (list ++ content)
+                         in
+                         Api.put url body (GetContentHash <| contentSize content)
+                       )
+
+                   Err _ ->
+                       ( { model | problems = [ ServerError "Ошибка загрузки файлов (UpdateContent Msg)" ] }, Cmd.none )
+        -}
+        GetContentHash node result ->
+            case result of
+                Ok cid ->
+                    let
+                        replaceLabel z =
+                            setFocus node.location z
+                                |> Zipper.replaceLabel { node | cid = cid }
+                                |> setFocus model.path.location
+                    in
+                    ( { model
+                        | zipper = updateRemote replaceLabel model.zipper
+                        , changes = Dict.insert node.location node model.changes
+                      }
+                    , if node.location == model.path.location then
+                        Api.get (Endpoint.dagGet url cid) (GetNodeContent "init content request") contentDecoder
+
+                      else
+                        Cmd.none
+                    )
+
+                Err _ ->
+                    ( { model | problems = [ ServerError "Ошибка запроса хэша файлов (GetContentHash Msg)" ] }, Cmd.none )
 
         UpdateQuery hash ->
             ( { model | root = Success ( Editing, hash ) }, Cmd.none )
@@ -588,7 +544,7 @@ update msg model =
                       }
                     , Cmd.batch
                         [ Route.replaceUrl (Session.navKey model.session) (Route.Tensor newPath)
-                        , Api.get (Endpoint.content url newPath) (GetNodeContent model.path.cid) contentDecoder
+                        , Api.get (Endpoint.content url newPath) (GetNodeContent newPath.cid) contentDecoder
                         , Api.storeSettings newPath
                         , createLogEntry currentPath "классификатор" currentPath.cid newPath.cid
                         ]
@@ -604,61 +560,14 @@ update msg model =
                 Ok nodes ->
                     ( { model
                         | content = Success <| List.indexedMap (\i a -> { a | id = i }) nodes
-                        , style =
-                            Animation.queue
-                                [ Animation.wait <| Time.millisToPosix 200
-                                , Animation.to [ Animation.opacity 1.0 ]
-                                ]
-                                model.style
+
+                        --, style = Animation.queue [ Animation.to [ Animation.opacity 1.0 ] ] model.style
                       }
                     , Cmd.none
                     )
 
                 Err _ ->
                     ( { model | problems = [ ServerError <| "Ошибка запроса файлов (GetNodeContent Msg) по адресу " ++ hash ] }, Cmd.none )
-
-        UpdateContent content result ->
-            case result of
-                Ok list ->
-                    ( { model | content = Success <| List.indexedMap (\i a -> { a | id = i }) (list ++ content) }
-                    , let
-                        body =
-                            Encode.list contentEncoder (list ++ content)
-                      in
-                      Api.put url body (GetContentHash <| contentSize content)
-                    )
-
-                Err _ ->
-                    ( { model | problems = [ ServerError "Ошибка загрузки файлов (Content Msg)" ] }, Cmd.none )
-
-        GetContentHash size result ->
-            case result of
-                Ok cid ->
-                    let
-                        newLabel =
-                            { label | cid = cid, size = size }
-
-                        updatedZipper =
-                            Zipper.replaceLabel newLabel model.zipper
-                    in
-                    ( { model
-                        | zipper = updatedZipper
-                        , changes = Dict.insert label.location newLabel model.changes
-                      }
-                    , Cmd.none
-                      -- for debug purposes - verify added content by getting from IPFS by new hash
-                      --let
-                      --    body =
-                      --        updatedZipper
-                      --            |> Zipper.toTree
-                      --            |> treeEncoder
-                      --  in
-                      --  Cmd.batch
-                      --    [ Api.get (Endpoint.dagGet url cid) (GetNodeContent "request") contentDecoder ]
-                    )
-
-                Err _ ->
-                    ( { model | problems = [ ServerError "Ошибка запроса хэша файлов (GetContentHash Msg)" ] }, Cmd.none )
 
         AddLogEntry entry ->
             ( { model
@@ -679,7 +588,7 @@ update msg model =
 
         UpdateFocus node ->
             ( { model
-                | zipper = Zipper.replaceLabel node model.zipper
+                | zipper = updateRemote (Zipper.replaceLabel node) model.zipper
                 , changes = Dict.insert node.location node model.changes
               }
             , Cmd.none
@@ -705,24 +614,24 @@ update msg model =
             in
             ( { model | content = content, root = root }, Cmd.none )
 
-        DagPut value ->
+        DagPut zipper ->
             let
-                rootbody z =
-                    Zipper.label z |> ipldNodeEncoder |> createBodyFrom
+                rootbody =
+                    createBodyFrom << ipldNodeEncoder << Zipper.label
             in
             ( { model
                 | root = Loading
-                , zipper = Zipper.fromTree <| Tree.tree (initNode []) []
+                , zipper = LoadingSlowly
                 , changes = Dict.empty
               }
             , Cmd.batch
                 [ Dict.values model.changes
                     |> List.reverse
-                    |> commitChanges (Endpoint.dagPut url) model.zipper
+                    |> commitChanges (Endpoint.dagPut url) zipper
                     |> Task.andThen
-                        (\zipper ->
+                        (\patched_zipper ->
                             Decode.at [ "Cid", "/" ] Decode.string
-                                |> Api.task "POST" (Endpoint.dagPut url) (rootbody zipper)
+                                |> Api.task "POST" (Endpoint.dagPut url) (rootbody patched_zipper)
                         )
                     |> Task.attempt GetRootHash
                 , Task.perform (\_ -> PassedSlowLoadThreshold) Loading.slowThreshold
@@ -732,7 +641,7 @@ update msg model =
         GotSession _ ->
             ( model, Cmd.none )
 
-        Perform action ->
+        Perform node action ->
             let
                 mapFun =
                     case action of
@@ -747,23 +656,16 @@ update msg model =
                         Set link ->
                             List.Extra.setAt link.id link
 
-                        --List.map
-                        --    (\x ->
-                        --        if x.id == link.id then
-                        --            link
-                        --        else
-                        --            x
-                        --    )
                         RemoveAll ->
                             List.filter (\a -> False)
 
-                ( links, size ) =
+                links =
                     case model.content of
                         Success content ->
-                            ( mapFun content, contentSize content )
+                            mapFun content
 
                         _ ->
-                            ( [], label.size )
+                            []
             in
             ( { model | content = Success links }
             , case action of
@@ -782,15 +684,13 @@ update msg model =
                                     (\x ->
                                         Api.task "POST" (Endpoint.dagPut url) body (Decode.at [ "Cid", "/" ] Decode.string)
                                     )
-                                |> Task.attempt (GetContentHash size)
+                                |> Task.attempt (GetContentHash node)
 
                         _ ->
                             Cmd.none
 
                 _ ->
-                    Api.put url
-                        (Encode.list contentEncoder links)
-                        (GetContentHash size)
+                    Api.put url (Encode.list contentEncoder links) (GetContentHash node)
             )
 
 
@@ -800,96 +700,223 @@ update msg model =
 
 view : Model -> { title : String, content : Element Msg }
 view model =
-    let
-        label =
-            Zipper.label model.zipper
-
-        depth =
-            List.length model.path.location
-    in
+    --let
+    --     animation =
+    --       Animation.render model.style
+    --           |> List.map htmlAttribute
+    --in
     { title = "Suz-Dal App v0.1"
     , content =
-        column
-            [ Font.size 14
-            , Font.family
-                [ Font.typeface "Ubuntu-Regular"
-                , Font.sansSerif
-                ]
-            , spacing 15
-            , width fill
-            , height fill
-            ]
-            [ viewProblems model.problems
-            , case model.root of
-                Success ( _, _ ) ->
-                    row
-                        [ width fill
-                        , spacing 20
-                        , paddingEach { edges | top = 10, bottom = 10, left = 20 }
-                        , height fill
-                        , htmlAttribute (Html.Attributes.style "flex-shrink" "1")
-                        , clip
-                        ]
-                        [ viewAllContexts model
-                        , viewContent model
-                        ]
+        case model.root of
+            Success _ ->
+                column
+                    [ spacing 15
+                    , width fill
+                    , height fill
+                    ]
+                    [ viewProblems model.problems
+                    , viewRemote (viewControls model.changes model.zipper) model.root
+                    , viewRemote (viewDAG model) model.zipper
+                    , el [ alignBottom, width fill ] <| viewLog model.log
+                    ]
 
-                LoadingSlowly ->
-                    el [ width fill, height fill, Background.color <| white 1.0 ] <|
-                        el [ centerX, centerY ] <|
-                            html Icons.loader
+            LoadingSlowly ->
+                loader "Вычисляем корневой хэш репозитория..."
 
-                _ ->
-                    el [ centerX, centerY, width fill, height fill, Background.color <| white 1.0 ] <|
-                        none
-            , el [ alignBottom, width fill ] <| viewLog model.log
-            ]
+            _ ->
+                none
     }
 
 
-viewAllContexts : Model -> Element Msg
-viewAllContexts model =
+viewDAG : Model -> DAG -> Element Msg
+viewDAG model zipper =
     let
-        isCrumb a =
-            if List.member a (getCrumbs model.zipper []) || (a.location == model.path.location) then
-                [ Background.color <| colorCodeConverter a.color model.color 1.0
-                , Border.color <| darkGrey 1.0
-                , Border.shadow
-                    { offset = ( 0, 0 )
-                    , size = 1
-                    , blur = 1
-                    , color = lightGrey 1.0
-                    }
-                ]
+        cellStyle alpha node =
+            [ width fill
+            , height fill
+            , Background.color <| simpleColorCodeConverter node.color alpha
+            , htmlAttribute <| Html.Attributes.id <| Route.locationToString "/" node.location
+            , Event.onClick <| ChangeFocus node
+            ]
+
+        style node =
+            if
+                List.member node (getCrumbs zipper [])
+                    || node.location
+                    == model.path.location
+                    || isInfixOf model.path.location node.location
+            then
+                cellStyle 1.0 node
 
             else
-                [ Background.color <| colorCodeConverter a.color model.color 0.3, Border.color <| white 1.0, Border.width 2 ]
+                cellStyle 0.3 node ++ [ Font.color <| darkGrey 1.0 ]
+
+        isCrumb node =
+            el (style node) <| viewCell model.path node
+
+        haveParent z =
+            case Zipper.removeTree z of
+                Just parent ->
+                    True
+
+                Nothing ->
+                    False
+
+        url =
+            Session.url model.session
     in
-    el
-        [ width (fill |> minimum 800)
-        , alignTop
+    row
+        [ width fill
         , height fill
+        , spacing 40
+        , paddingEach { edges | top = 10, bottom = 10, left = 30 }
+        , htmlAttribute (Html.Attributes.style "flex-shrink" "1")
+        , clip
+        , Font.size 12
         ]
-    <|
-        column
-            [ width fill, spacing 15 ]
-            [ viewControls model
-            , getContexts model.zipper []
+        [ column
+            [ width fill
+            , spacing 15
+            , alignTop
+            , height fill
+            ]
+            [ getContexts zipper []
                 |> List.map
-                    (\list ->
-                        List.map
-                            (\node -> el ([ width fill, height fill, centerY ] ++ isCrumb node) <| viewCell model.path node)
-                            list
-                            |> row [ width fill, height fill, spacing 5 ]
-                    )
+                    (row [ width fill, height fill, spacing 5 ] << List.map isCrumb)
                 |> column [ width fill, spacing 5 ]
             , row
                 [ centerX, spacing 10 ]
-                [ button False Icons.plusCircle Append
-                , button False Icons.trash2 RemoveFocus
+                [ button False Icons.plusCircle <| Append zipper
+                , button
+                    False
+                    (if model.shownodeprops then
+                        Icons.eyeOff
+
+                     else
+                        Icons.eye
+                    )
+                    InvertShowNodeProps
+                , button (not <| haveParent zipper) Icons.trash2 <| RemoveFocus zipper
                 ]
             , hslSlider model.color
+            , viewNodeProps model.path.cid model.color (Zipper.label zipper) model.shownodeprops
             ]
+        , viewRemote (viewContent zipper url) model.content
+        ]
+
+
+viewCell : Path -> Node -> Element Msg
+viewCell path node =
+    case node.status of
+        Editing ->
+            Input.multiline
+                [ height fill
+                , width fill
+                , htmlAttribute <| Html.Attributes.id <| Route.locationToString "/" node.location
+                , Event.onLoseFocus <| UpdateFocus { node | status = Selected }
+                , Font.center
+                ]
+                { onChange = \new -> UpdateFocus { node | description = new }
+                , text = node.description
+                , placeholder = Just <| Input.placeholder [] <| el [] none
+                , label = Input.labelHidden "Data input"
+                , spellcheck = True
+                }
+
+        _ ->
+            el
+                [ mouseOver <|
+                    [ Border.shadow
+                        { offset = ( 1, 1 )
+                        , size = 1
+                        , blur = 0
+                        , color = lightGrey 1.0
+                        }
+                    ]
+                , width fill
+                , height (fill |> minimum 40)
+                , pointer
+                , Font.center
+                , padding 6
+                , htmlAttribute <| Html.Attributes.id <| Route.locationToString "/" node.location
+                , Event.onClick <| ChangeFocus node
+                , Event.onDoubleClick <| ChangeFocus { node | status = Editing }
+                ]
+            <|
+                paragraph [ centerY ] [ text node.description ]
+
+
+viewContent : DAG -> Url -> Content -> Element Msg
+viewContent dag url content =
+    let
+        node =
+            Zipper.label dag
+    in
+    column
+        [ width fill
+        , height fill
+        , paddingEach { edges | right = 28, left = 15 }
+        , spacing 5
+        ]
+        [ row
+            [ width fill
+            , Border.color <| darkGrey 1.0
+            , Border.widthEach { edges | bottom = 2 }
+            ]
+            [ viewFocusTitle dag
+            , viewContentEditor node content
+            ]
+        , column
+            [ scrollbarY, width fill, height fill, paddingEach { edges | right = 10 } ]
+          <|
+            List.map (viewNodeAsFile url node) content
+        ]
+
+
+line : Element Msg
+line =
+    el [ height <| px 3, Background.color <| lightGrey 0.5, centerY, width fill ] <| text ""
+
+
+tooltip : String -> List (E.Attribute msg)
+tooltip str =
+    [ htmlAttribute <| Html.Attributes.attribute "class" "tooltipped tooltipped-e tooltipped-no-delay border p-2 mb-2 mr-2 float-left"
+    , htmlAttribute <| Html.Attributes.attribute "aria-label" str
+    ]
+
+
+viewContentEditor : Node -> Content -> Element Msg
+viewContentEditor node content =
+    row
+        [ alignRight ]
+        [ el
+            [ htmlAttribute <| Html.Attributes.attribute "class" "tooltipped tooltipped-s tooltipped-no-delay border p-2 mb-2 mr-2 float-left"
+            , htmlAttribute <| Html.Attributes.attribute "aria-label" "Добавить текст"
+            ]
+          <|
+            button False Icons.fileText (AddText content)
+        , el
+            [ htmlAttribute <| Html.Attributes.attribute "class" "tooltipped tooltipped-s tooltipped-no-delay border p-2 mb-2 mr-2 float-left"
+            , htmlAttribute <| Html.Attributes.attribute "aria-label" "Добавить файл"
+            ]
+          <|
+            button False Icons.filePlus (Pick node content)
+
+        --, el [ alignRight, transparent (List.isEmpty content) ] <|
+        --    button False Icons.trash2 <|
+        --        Perform RemoveAll
+        ]
+
+
+viewFocusTitle : DAG -> Element Msg
+viewFocusTitle zipper =
+    paragraph
+        [ --paddingEach { edges | top = 20, bottom = 7 }
+          Font.size 24
+        , width fill
+        , centerY
+        ]
+        [ text <| .description <| Zipper.label zipper ]
 
 
 viewLog : List Entry -> Element Msg
@@ -923,7 +950,7 @@ viewEntry entry =
 
 
 
---viewCrumbs : Zipper Node -> Element Msg
+--viewCrumbs : DAG -> Element Msg
 --viewCrumbs zipper =
 --    getCrumbs zipper []
 --        |> List.map viewCrumbAsButton
@@ -956,50 +983,8 @@ viewEntry entry =
 --        text node.description
 
 
-viewCell : Path -> Node -> Element Msg
-viewCell path node =
-    case node.status of
-        Editing ->
-            Input.multiline
-                [ height fill
-                , width fill
-                , htmlAttribute <| Html.Attributes.id <| Route.locationToString "/" node.location
-                , Event.onLoseFocus <| UpdateFocus { node | status = Selected }
-                , Font.center
-                ]
-                { onChange = \new -> UpdateFocus { node | description = new }
-                , text = node.description
-                , placeholder = Just <| Input.placeholder [] <| el [] none
-                , label = Input.labelHidden "Data input"
-                , spellcheck = True
-                }
-
-        _ ->
-            paragraph
-                [ mouseOver <|
-                    [ Border.shadow
-                        { offset = ( 0, 0 )
-                        , size = 2
-                        , blur = 4
-                        , color = lightGrey 1.0
-                        }
-                    ]
-
-                --, htmlAttribute <| Html.Attributes.property "transition" (Encode.string "box-shadow 333ms ease-in-out 0s, width 250ms, height 250ms, background-color 250ms")
-                , pointer
-                , Font.center
-                , height (fill |> minimum 40)
-                , width fill
-                , padding 10
-                , htmlAttribute <| Html.Attributes.id <| Route.locationToString "/" node.location
-                , Event.onClick <| ChangeFocus node
-                , Event.onDoubleClick <| ChangeFocus { node | status = Editing }
-                ]
-                [ text node.description ]
-
-
-viewNode : Hash -> Float -> Node -> Animation.State -> Element Msg
-viewNode root hue node animstate =
+viewNodeProps : Hash -> Float -> Node -> Bool -> Element Msg
+viewNodeProps root hue node show =
     let
         inputStyle =
             [ width fill
@@ -1012,20 +997,15 @@ viewNode root hue node animstate =
             , alignRight
             , Font.bold
             ]
-
-        animStyle =
-            Animation.render animstate
-                |> List.map htmlAttribute
     in
     column
-        ([ width fill
-         , spacing 10
-         , Background.color <| lightGrey 1.0
-         , Border.rounded 5
-         , padding 10
-         ]
-            ++ animStyle
-        )
+        [ width fill
+        , spacing 10
+        , Background.color <| lightGrey 1.0
+        , Border.rounded 5
+        , padding 10
+        , transparent show
+        ]
         [ Input.text
             inputStyle
             { onChange = \new -> UpdateFocus { node | cid = new }
@@ -1105,75 +1085,9 @@ button disabled icon msg =
         }
 
 
-viewContent : Model -> Element Msg
-viewContent model =
-    let
-        node =
-            Zipper.label model.zipper
-
-        style =
-            [ width
-                (fill
-                    |> maximum 800
-                    |> minimum 400
-                )
-            , height fill
-            , paddingEach { edges | right = 28, left = 15 }
-            , spacing 5
-            ]
-
-        animStyle =
-            Animation.render model.style
-                |> List.map htmlAttribute
-    in
-    column
-        (style ++ animStyle)
-    <|
-        case model.content of
-            Success content ->
-                [ row
-                    [ width fill, alignTop ]
-                    [ el [ alignLeft ] <| button False Icons.fileText (AddText content)
-                    , el [ alignLeft ] <| button False Icons.filePlus Pick
-                    , el [ alignLeft ] <|
-                        button
-                            False
-                            (if model.shownodeprops then
-                                Icons.eyeOff
-
-                             else
-                                Icons.eye
-                            )
-                            InvertShowNodeProps
-                    , el
-                        [ alignRight, transparent (List.isEmpty content) ]
-                      <|
-                        button False Icons.trash2 <|
-                            Perform RemoveAll
-                    ]
-                , if model.shownodeprops then
-                    viewNode model.path.cid model.color node model.style
-
-                  else
-                    none
-                , paragraph
-                    [ paddingEach { edges | top = 20, bottom = 7 }
-                    , Border.color <| darkGrey 1.0
-                    , Border.widthEach { edges | bottom = 2 }
-                    , Font.size 24
-                    ]
-                    [ text node.description ]
-                , column
-                    [ scrollbarY, width fill, height fill, paddingEach { edges | right = 10 } ]
-                  <|
-                    List.map (viewNodeAsFile <| Session.url model.session) content
-                ]
-
-            LoadingSlowly ->
-                [ el [ centerX, centerY, height fill ] <| html Icons.loader ]
-
-            _ ->
-                [ none ]
+loader : String -> Element Msg
+loader str =
+    el [ centerX, centerY ] <| Loading.icon str
 
 
 edges =
@@ -1184,8 +1098,8 @@ edges =
     }
 
 
-viewNodeActions : Url -> Node -> Element Msg
-viewNodeActions url node =
+viewNodeActions : Url -> Node -> Node -> Element Msg
+viewNodeActions url node file =
     let
         actionStyle =
             [ mouseOver <| [ Background.color <| lightGrey 1.0 ]
@@ -1198,7 +1112,7 @@ viewNodeActions url node =
         [ width fill ]
     <|
         row
-            [ if node.status /= Selected then
+            [ if file.status /= Selected then
                 htmlAttribute <| Html.Attributes.style "visibility" "hidden"
 
               else
@@ -1208,46 +1122,46 @@ viewNodeActions url node =
             ]
             [ newTabLink
                 actionStyle
-                { url = Endpoint.file url node.cid
+                { url = Endpoint.file url file.cid
                 , label = text "открыть"
                 }
             , Input.button actionStyle
-                { onPress = Just <| Perform <| Set { node | status = Editing }
+                { onPress = Just <| Perform node <| Set { file | status = Editing }
                 , label = text "править"
                 }
             , downloadAs
                 actionStyle
                 { label = text "загрузить"
-                , filename = node.name
-                , url = Endpoint.file url node.cid
+                , filename = file.name
+                , url = Endpoint.file url file.cid
                 }
             , Input.button actionStyle
-                { onPress = Just <| Perform <| Move node -1
+                { onPress = Just <| Perform node <| Move file -1
                 , label = text "˄"
                 }
             , Input.button actionStyle
-                { onPress = Just <| Perform <| Move node 1
+                { onPress = Just <| Perform node <| Move file 1
                 , label = text "˅"
                 }
             , Input.button actionStyle
-                { onPress = Just <| Perform <| Remove node
+                { onPress = Just <| Perform node <| Remove file
                 , label = text "x"
                 }
             ]
 
 
-viewNodeAsFile : Url -> Node -> Element Msg
-viewNodeAsFile url node =
+viewNodeAsFile : Url -> Node -> Node -> Element Msg
+viewNodeAsFile url node file =
     let
         style =
-            case node.status of
+            case file.status of
                 Selected ->
                     [ width fill
                     , Border.width 1
                     , Border.dashed
                     , Border.color <| darkGrey 1.0
-                    , Event.onDoubleClick <| Perform <| Set { node | status = Editing }
-                    , Event.onClick <| Perform <| Set { node | status = Completed }
+                    , Event.onDoubleClick <| Perform node <| Set { file | status = Editing }
+                    , Event.onClick <| Perform node <| Set { file | status = Completed }
                     , Border.shadow
                         { offset = ( 2, 2 )
                         , size = 1
@@ -1263,8 +1177,8 @@ viewNodeAsFile url node =
 
                 _ ->
                     [ width fill
-                    , Event.onDoubleClick <| Perform <| Set { node | status = Editing }
-                    , Event.onClick <| Perform <| Set { node | status = Selected }
+                    , Event.onDoubleClick <| Perform node <| Set { file | status = Editing }
+                    , Event.onClick <| Perform node <| Set { file | status = Selected }
                     , Border.width 1
                     , Border.dashed
                     , Border.color <| white 1.0
@@ -1272,19 +1186,19 @@ viewNodeAsFile url node =
     in
     column
         [ width fill ]
-        [ viewNodeActions url node
+        [ viewNodeActions url node file
         , el style <|
-            case node.mimetype of
+            case file.mimetype of
                 Just (Mime.Video _) ->
                     column
                         [ width fill
                         , Font.color <| lightGrey 1.0
                         , mouseOver [ Font.color <| black 1.0 ]
                         ]
-                        [ el [ width fill, padding 5, spacing 5, clip, Font.italic ] <| text node.name
+                        [ el [ width fill, padding 5, spacing 5, clip, Font.italic ] <| text file.name
                         , html <|
                             Html.video
-                                [ Html.Attributes.src <| Endpoint.file url node.cid
+                                [ Html.Attributes.src <| Endpoint.file url file.cid
                                 , Html.Attributes.controls True
                                 , Html.Attributes.style "width" "100%"
                                 ]
@@ -1297,10 +1211,10 @@ viewNodeAsFile url node =
                         , Font.color <| darkGrey 1.0
                         , mouseOver [ Font.color <| black 1.0 ]
                         ]
-                        [ el [ width fill, padding 5, spacing 5, clip, Font.italic, Font.center ] <| text node.name
+                        [ el [ width fill, padding 5, spacing 5, clip, Font.italic, Font.center ] <| text file.name
                         , html <|
                             Html.audio
-                                [ Html.Attributes.src <| Endpoint.file url node.cid
+                                [ Html.Attributes.src <| Endpoint.file url file.cid
                                 , Html.Attributes.controls True
                                 , Html.Attributes.style "width" "100%"
                                 ]
@@ -1313,28 +1227,28 @@ viewNodeAsFile url node =
                         , Font.color <| lightGrey 1.0
                         , mouseOver [ Font.color <| black 1.0 ]
                         ]
-                        { src = Endpoint.file url node.cid
-                        , description = node.name
+                        { src = Endpoint.file url file.cid
+                        , description = file.name
                         }
 
                 Just (Mime.Text Mime.PlainText) ->
-                    if node.status == Editing then
+                    if file.status == Editing then
                         Input.multiline
                             ([ height fill
                              , width fill
-                             , htmlAttribute <| Html.Attributes.id <| String.concat [ "file-id-", String.fromInt node.id ]
+                             , htmlAttribute <| Html.Attributes.id <| String.concat [ "file-id-", String.fromInt file.id ]
                              , Event.onLoseFocus <|
-                                if String.isEmpty node.description then
-                                    Perform <| Remove node
+                                if String.isEmpty file.description then
+                                    Perform node <| Remove file
 
                                 else
-                                    Perform <| Set { node | status = Changed }
+                                    Perform node <| Set { file | status = Changed }
                              ]
-                                ++ fontBy node.size
+                                ++ fontBy file.size
                             )
                             { onChange =
-                                \new -> Perform <| Set { node | description = new, size = String.length new }
-                            , text = node.description
+                                \new -> Perform node <| Set { file | description = new, size = String.length new }
+                            , text = file.description
                             , placeholder = Just <| Input.placeholder [] <| el [] none
                             , label = Input.labelHidden "Text data input"
                             , spellcheck = True
@@ -1342,8 +1256,8 @@ viewNodeAsFile url node =
 
                     else
                         paragraph
-                            ([ width fill, padding 5, spacing 5, clip, mouseOver [ Background.color <| lightGrey 0.2 ] ] ++ fontBy node.size)
-                            [ text node.description ]
+                            ([ width fill, padding 5, spacing 5, clip, mouseOver [ Background.color <| lightGrey 0.2 ] ] ++ fontBy file.size)
+                            [ text file.description ]
 
                 _ ->
                     row
@@ -1357,7 +1271,7 @@ viewNodeAsFile url node =
                             , htmlAttribute <| Html.Attributes.style "text-overflow" "ellipsis"
                             ]
                           <|
-                            text node.name
+                            text file.name
                         , el
                             [ Font.color <| darkGrey 1.0
                             , padding 5
@@ -1367,7 +1281,7 @@ viewNodeAsFile url node =
                           <|
                             text <|
                                 "("
-                                    ++ Filesize.format node.size
+                                    ++ Filesize.format file.size
                                     ++ ")"
                         ]
         ]
@@ -1391,15 +1305,43 @@ fontBy size =
         []
 
 
-viewControls : Model -> Element Msg
-viewControls model =
+saveButton : Dict (List Int) Node -> DAG -> Element Msg
+saveButton changes dag =
     let
-        treeToJson =
-            treeEncoder <| Zipper.toTree <| model.zipper
-
         noChanges =
-            Dict.isEmpty model.changes
+            Dict.isEmpty changes
+    in
+    el
+        [ Background.color <|
+            if noChanges then
+                lightGrey 1.0
 
+            else
+                orange 1.0
+        , Border.rounded 5
+        , Dict.size changes
+            |> String.fromInt
+            |> text
+            |> el
+                [ alignTop
+                , alignRight
+                , Font.size 10
+                , Font.color <| white 1.0
+                , Background.color <| black 0.8
+                , Border.rounded 10
+                , padding 3
+                , moveRight 4
+                , moveUp 4
+                ]
+            |> inFront
+        ]
+    <|
+        button noChanges Icons.save (DagPut dag)
+
+
+viewControls : Dict (List Int) Node -> Remote DAG -> ( Status, Hash ) -> Element Msg
+viewControls changes zipper root =
+    let
         updateButton hash =
             el
                 [ Background.color <| lightGrey 1.0
@@ -1407,44 +1349,17 @@ viewControls model =
                 ]
             <|
                 button False Icons.arrowRight (GetRootHash <| Ok hash)
-
-        saveButton =
-            el
-                [ Background.color <|
-                    if noChanges then
-                        lightGrey 1.0
-
-                    else
-                        orange 1.0
-                , Border.rounded 5
-                , Dict.size model.changes
-                    |> String.fromInt
-                    |> text
-                    |> el
-                        [ alignTop
-                        , alignRight
-                        , Font.size 10
-                        , Font.color <| white 1.0
-                        , Background.color <| black 0.8
-                        , Border.rounded 10
-                        , padding 3
-                        , moveRight 4
-                        , moveUp 4
-                        ]
-                    |> inFront
-                ]
-            <|
-                button noChanges Icons.save (DagPut treeToJson)
     in
     row
         [ spacing 5
+        , padding 5
         , width fill
         , height shrink
-        , Font.size 18
+        , Background.color <| lightGrey 0.2
         ]
     <|
-        case model.root of
-            Success ( Editing, string ) ->
+        case root of
+            ( Editing, string ) ->
                 [ el [ padding 5, centerX, centerY ] <| html Icons.edit
                 , el
                     [ height fill
@@ -1461,6 +1376,7 @@ viewControls model =
                         , Border.color <| darkGrey 1.0
                         , Font.color <| darkGrey 1.0
                         , Border.rounded 0
+                        , Background.color <| white 0.0
                         ]
                         { onChange = UpdateQuery
                         , text = string
@@ -1470,7 +1386,7 @@ viewControls model =
                 , updateButton string
                 ]
 
-            Success ( Completed, string ) ->
+            ( Completed, string ) ->
                 [ el [ padding 5, centerX, centerY ] <| html Icons.hash
                 , el
                     [ padding 5
@@ -1482,11 +1398,16 @@ viewControls model =
                     ]
                   <|
                     text string
-                , saveButton
+                , case zipper of
+                    Success z ->
+                        saveButton changes z
+
+                    _ ->
+                        none
                 ]
 
-            _ ->
-                []
+            ( _, _ ) ->
+                [ el [ width fill, Font.center ] <| text "Загружаем хранилище..." ]
 
 
 
@@ -1644,7 +1565,7 @@ createBodyFrom value =
         [ turnToBytesPart "whatever" "application/json" value ]
 
 
-commitChanges : Endpoint -> Zipper Node -> List Node -> Task Http.Error (Zipper Node)
+commitChanges : Endpoint -> DAG -> List Node -> Task Http.Error DAG
 commitChanges endpoint zipper list =
     case list of
         x :: xs ->
@@ -1660,7 +1581,7 @@ commitChanges endpoint zipper list =
             Task.succeed zipper
 
 
-commitChange : Endpoint -> Zipper Node -> Task Http.Error (Zipper Node)
+commitChange : Endpoint -> DAG -> Task Http.Error DAG
 commitChange endpoint zipper =
     let
         linksbody z =
@@ -1684,7 +1605,7 @@ commitChange endpoint zipper =
             Task.succeed zipper
 
 
-updateParent : Endpoint -> Zipper Node -> Task Http.Error Node
+updateParent : Endpoint -> DAG -> Task Http.Error Node
 updateParent endpoint zipper =
     let
         linksbody z =
@@ -1702,7 +1623,17 @@ updateParent endpoint zipper =
             )
 
 
-setFocus : List Int -> Zipper Node -> Zipper Node
+updateRemote : (a -> a) -> Remote a -> Remote a
+updateRemote fun z =
+    case z of
+        Success x ->
+            Success (fun x)
+
+        _ ->
+            z
+
+
+setFocus : List Int -> DAG -> DAG
 setFocus location zipper =
     case Zipper.findFromRoot (\x -> x.location == location) zipper of
         Just z ->
@@ -1772,6 +1703,20 @@ addText endpoint id string =
             )
 
 
+uploadFile : Endpoint -> File -> Task Http.Error Node
+uploadFile endpoint file =
+    let
+        body =
+            Http.multipartBody [ Http.filePart "file" file ]
+
+        decoder =
+            objLinkDecoder
+                |> Decode.andThen linkToNodeDecoder
+    in
+    Api.task "POST" endpoint body decoder
+        |> Task.andThen (\x -> Task.succeed { x | mimetype = File.mime file |> Mime.parseMimeType })
+
+
 createLogEntry : Path -> String -> String -> String -> Cmd Msg
 createLogEntry path field old new =
     let
@@ -1780,6 +1725,33 @@ createLogEntry path field old new =
     in
     Task.map2 (\time zone -> { time = time, zone = zone, diff = diff }) Time.now Time.here
         |> Task.perform AddLogEntry
+
+
+fetchZipper : Url -> List Path -> DAG -> Task Http.Error DAG
+fetchZipper url paths zipper =
+    case paths of
+        x :: xs ->
+            let
+                focus =
+                    setFocus x.location zipper
+            in
+            Zipper.label focus
+                |> getChildren url x.cid
+                |> Task.andThen
+                    (\tree ->
+                        Zipper.replaceTree tree focus
+                            |> Zipper.mapLabel (\label -> { label | expanded = not label.expanded })
+                            |> fetchZipper url xs
+                    )
+
+        [] ->
+            Zipper.root zipper
+                |> Task.succeed
+
+
+pathlist : Path -> List Path
+pathlist path =
+    Page.processPath { path | location = List.reverse path.location } (\x -> x) []
 
 
 
@@ -1838,7 +1810,7 @@ nodeDecoder =
         |> hardcoded False
 
 
-contentDecoder : Decode.Decoder (List Node)
+contentDecoder : Decode.Decoder Content
 contentDecoder =
     Decode.list fileDecoder
 
@@ -1848,7 +1820,7 @@ fileDecoder =
     Decode.succeed Node
         |> hardcoded 0
         |> hardcoded Completed
-        |> required "name" Decode.string
+        |> optional "name" Decode.string "0"
         |> required "cid" (Decode.field "/" Decode.string)
         |> optional "links" (Decode.field "/" Decode.string) ""
         |> optional "size" sizeDecoder 0
@@ -1863,6 +1835,11 @@ fileDecoder =
 sizeDecoder : Decode.Decoder Int
 sizeDecoder =
     Decode.oneOf [ Decode.int, DecodeExtra.parseInt ]
+
+
+keyDecoder : Decode.Decoder String
+keyDecoder =
+    Decode.field "key" Decode.string
 
 
 linkToNodeDecoder : Link -> Decode.Decoder Node
@@ -1889,16 +1866,6 @@ objLinkDecoder =
         |> required "Size" sizeDecoder
 
 
-ipfsNodeID : Decode.Decoder IpfsNodeID
-ipfsNodeID =
-    Decode.succeed IpfsNodeID
-        |> required "ID" Decode.string
-        |> required "PublicKey" Decode.string
-        |> required "Addresses" (Decode.list Decode.string)
-        |> required "AgentVersion" Decode.string
-        |> required "ProtocolVersion" Decode.string
-
-
 objectDecoder : Decode.Decoder Object
 objectDecoder =
     Decode.succeed Object
@@ -1906,7 +1873,7 @@ objectDecoder =
         |> required "Data" Decode.string
 
 
-contentSize : List Node -> Int
+contentSize : Content -> Int
 contentSize content =
     List.map .size content
         |> List.sum
@@ -1928,7 +1895,7 @@ hslSlider hue =
             )
         ]
         { onChange = ChangeColor
-        , label = Input.labelAbove [] <| text <| "Цветовой регулятор ( " ++ Debug.toString hue ++ " )"
+        , label = Input.labelAbove [] <| text <| "Цветовой регулятор ( " ++ String.fromFloat hue ++ " )"
         , min = 0
         , max = 59.9999999
         , step = Nothing
@@ -1943,49 +1910,48 @@ colorCodeConverter i hue alpha =
     fromHsl (degrees <| hue + 60 * toFloat i) 0.92 0.5 alpha
 
 
+simpleColorCodeConverter : Int -> Float -> Color
+simpleColorCodeConverter i alpha =
+    let
+        color =
+            case i of
+                0 ->
+                    yellow
 
-{-
-   colorCodeConverter : Int -> Float -> Color
-   colorCodeConverter i alpha =
-       let
-           color =
-               case i of
-                   0 ->
-                       yellow
+                1 ->
+                    orange
 
-                   1 ->
-                       orange
+                2 ->
+                    violet
 
-                   2 ->
-                       violet
+                3 ->
+                    blue
 
-                   3 ->
-                       blue
+                4 ->
+                    cyan
 
-                   4 ->
-                       cyan
+                5 ->
+                    green
 
-                   5 ->
-                       green
+                6 ->
+                    lightGrey
 
-                   6 ->
-                       lightGrey
+                7 ->
+                    darkGrey
 
-                   7 ->
-                       darkGrey
+                8 ->
+                    black
 
-                   8 ->
-                       black
+                9 ->
+                    white
 
-                   9 ->
-                       white
+                _ ->
+                    white
+    in
+    color alpha
 
-                   _ ->
-                       white
-       in
-       color alpha
 
--}
+
 -- ENCODERS
 
 
@@ -2062,7 +2028,7 @@ pureContentEncoder node =
 -- HELPERS
 
 
-navigateZipper : (Zipper Node -> Maybe (Zipper Node)) -> Zipper Node -> Zipper Node
+navigateZipper : (DAG -> Maybe DAG) -> DAG -> DAG
 navigateZipper fun zipper =
     case fun zipper of
         Just new ->
@@ -2072,7 +2038,7 @@ navigateZipper fun zipper =
             zipper
 
 
-addPathsToTree : Zipper Node -> Zipper Node
+addPathsToTree : DAG -> DAG
 addPathsToTree zipper =
     case Zipper.forward zipper of
         Just x ->
@@ -2101,7 +2067,7 @@ indexChildren tree =
     Tree.mapChildren (index <| .location <| Tree.label tree) tree
 
 
-appendChild : Zipper Node -> Zipper Node
+appendChild : DAG -> DAG
 appendChild zipper =
     let
         label =
@@ -2121,12 +2087,7 @@ appendChild zipper =
     Zipper.replaceTree tree zipper
 
 
-removeNode : Zipper Node -> Maybe (Zipper Node)
-removeNode zipper =
-    Zipper.removeTree zipper
-
-
-getCrumbs : Zipper Node -> List Node -> List Node
+getCrumbs : DAG -> List Node -> List Node
 getCrumbs zipper acc =
     let
         appendLabel =
@@ -2140,7 +2101,7 @@ getCrumbs zipper acc =
             appendLabel
 
 
-getContexts : Zipper Node -> List (List Node) -> List (List Node)
+getContexts : DAG -> List (List Node) -> List (List Node)
 getContexts zipper acc =
     let
         appendChildren =
@@ -2154,7 +2115,7 @@ getContexts zipper acc =
             [ [ Zipper.label zipper ] ] ++ appendChildren
 
 
-keyAction : String -> Zipper Node -> Zipper Node
+keyAction : String -> DAG -> DAG
 keyAction code zipper =
     let
         label =
@@ -2189,3 +2150,106 @@ keyAction code zipper =
 
         Nothing ->
             zipper
+
+
+viewRemote : (a -> Element Msg) -> Remote a -> Element Msg
+viewRemote viewer remotecontent =
+    case remotecontent of
+        Success content ->
+            viewer content
+
+        LoadingSlowly ->
+            loader ""
+
+        _ ->
+            none
+
+
+
+-- CONSTANTS
+
+
+initText : Node
+initText =
+    { id = 0
+    , status = Editing
+    , name = ""
+    , cid = ""
+    , links = ""
+    , size = 0
+    , description = ""
+    , mimetype = Just (Mime.Text Mime.PlainText)
+    , color = 0
+    , location = []
+    , expanded = True
+    }
+
+
+appendedTree : List Int -> Tree Node
+appendedTree newLoc =
+    Tree.tree
+        { id = 0
+        , status = Completed
+        , name = "0"
+        , cid = "zdpuAtQy7GSHNcZxdBfmtowdL1d2WAFjJBwb6WAEfFJ6T4Gbi" --empty content list
+        , links = "zdpuAtQy7GSHNcZxdBfmtowdL1d2WAFjJBwb6WAEfFJ6T4Gbi" --empty links list
+        , size = 0
+        , description = ""
+        , mimetype = Nothing
+        , color = 0
+        , location = newLoc
+        , expanded = True
+        }
+        []
+
+
+{-| Return True if all the elements of the first list occur in-order and
+consecutively anywhere within the second.
+
+    isInfixOf [ 5, 7, 11 ] [ 2, 3, 5, 7, 11, 13 ]
+    --> True
+
+    isInfixOf [ 5, 7, 13 ] [ 2, 3, 5, 7, 11, 13 ]
+    --> False
+
+    isInfixOf [ 3, 5, 2 ] [ 2, 3, 5, 7, 11, 13 ]
+    --> False
+
+-}
+isInfixOf : List a -> List a -> Bool
+isInfixOf infixList list =
+    case infixList of
+        [] ->
+            True
+
+        x :: xs ->
+            isInfixOfHelp x xs list
+
+
+isInfixOfHelp : a -> List a -> List a -> Bool
+isInfixOfHelp infixHead infixTail list =
+    case list of
+        [] ->
+            False
+
+        x :: xs ->
+            if x == infixHead then
+                isPrefixOf infixTail xs
+
+            else
+                isInfixOfHelp infixHead infixTail xs
+
+
+{-| Take two lists and return `True`, if the first list is the prefix of the second list.
+-}
+isPrefixOf : List a -> List a -> Bool
+isPrefixOf prefix list =
+    case ( prefix, list ) of
+        ( [], _ ) ->
+            True
+
+        ( _ :: _, [] ) ->
+            False
+
+        ( p :: ps, x :: xs ) ->
+            p == x && isPrefixOf ps xs

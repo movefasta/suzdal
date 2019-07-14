@@ -35,7 +35,7 @@ defaultAvatar =
 
 image : String -> Image
 image filename =
-    Image ("/assets/images/" ++ filename)
+    Image ("/images/" ++ filename)
 
 
 

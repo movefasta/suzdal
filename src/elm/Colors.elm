@@ -83,50 +83,49 @@ type alias Hsl =
     }
 
 
+toHsl : Float -> Float -> Float -> Float -> Hsl
+toHsl r g b a =
+    let
+        cMax =
+            max (max r g) b
 
-{-
-   toHsl : Float -> Float -> Float -> Float -> Hsl
-   toHsl red green blue alpha =
-       let
-           cMax =
-               max (max r g) b
+        cMin =
+            min (min r g) b
 
-           cMin =
-               min (min r g) b
+        c =
+            cMax - cMin
 
-           c =
-               cMax - cMin
+        hue =
+            degrees 60
+                * (if cMax == r then
+                    modFloatBy 6 ((g - b) / c)
 
-           hue =
-               degrees 60
-                   * (if cMax == r then
-                       modFloatBy 6 ((g - b) / c)
+                   else if cMax == g then
+                    ((b - r) / c) + 2
 
-                      else if cMax == g then
-                       ((b - r) / c) + 2
+                   else
+                    {- cMax == b -}
+                    ((r - g) / c) + 4
+                  )
 
-                      else
-                       {- cMax == b -}
-                       ((r - g) / c) + 4
-                     )
+        lightness =
+            (cMax + cMin) / 2
 
-           lightness =
-               (cMax + cMin) / 2
+        saturation =
+            if lightness == 0 then
+                0
 
-           saturation =
-               if lightness == 0 then
-                   0
+            else
+                c / (1 - abs (2 * lightness - 1))
+    in
+    { hue = hue
+    , saturation = saturation
+    , lightness = lightness
+    , alpha = a
+    }
 
-               else
-                   c / (1 - abs (2 * lightness - 1))
-       in
-       { hue = hue
-       , saturation = saturation
-       , lightness = lightness
-       , alpha = alpha
-       }
 
--}
+
 -- COLOR PROPERTIES
 
 
