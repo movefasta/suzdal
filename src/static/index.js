@@ -45,5 +45,3 @@ window.addEventListener("storage", function(event) {
         app.ports.onStoreChange.send(event.newValue);
     }
 }, false);
-
-        
