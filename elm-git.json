@@ -1,0 +1,8 @@
+{
+    "git-dependencies": {
+        "direct": {
+            "https://github.com/mdgriffith/elm-ui.git": "1.1.2"
+        },
+        "indirect": {}
+    }
+}

@@ -1,6 +1,6 @@
 'use strict';
 
-require('./assets/css/primer-tooltips.css');
+//require('./assets/css/primer-tooltips.css');
 require('./assets/images/loading.svg');
 
 const IPFS = require('ipfs');
