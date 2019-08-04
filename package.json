@@ -5,12 +5,7 @@
   "main": "index.js",
   "author": "Igor Brylyov",
   "license": "MIT",
-  "dependencies": {
-    "@primer/css": "^12.4.0",
-    "ipfs": "^0.35.0",
-    "orbit-db": "^0.20.1",
-    "primer-tooltips": "^2.0.0"
-  },
+  "dependencies": {},
   "repository": {
     "type": "git",
     "url": "git+https://github.com/movefasta/suzdal.git"
