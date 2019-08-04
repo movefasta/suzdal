@@ -6,3 +6,4 @@ src/static/elm.js
 # elm-repl generated files
 repl-temp-*
 dist
+package-lock.json
