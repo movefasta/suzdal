@@ -12,8 +12,8 @@ import Task exposing (Task)
 icon : String -> Element msg
 icon desc =
     column
-        [ spacing 40 ]
-        [ image [ centerX, width <| px 64, height <| px 64 ] { src = "../" ++ Asset.src Asset.loading, description = desc }
+        [ spacing 40, centerX, centerY ]
+        [ image [ centerX, width <| px 64, height <| px 64 ] { src = Asset.src Asset.loading, description = "" }
         , el [ centerX ] <| text desc
         ]
 

@@ -33,7 +33,7 @@ type Page
 
 view : Maybe Path -> Page -> { title : String, content : Element msg } -> Browser.Document msg
 view maybepath page { title, content } =
-    { title = title ++ " - Трактовочная сеть"
+    { title = title ++ " - Новая Трактовочная сеть"
     , body =
         [ layoutWith
             { options =

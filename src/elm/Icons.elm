@@ -291,7 +291,6 @@ svgFeatherIcon className =
     svg
         [ class <| "feather feather-" ++ className
         , fill "none"
-        , height "30"
         , width "30"
         , stroke "currentColor"
         , strokeLinecap "round"

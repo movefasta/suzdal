@@ -596,23 +596,15 @@ update msg model =
 
         PassedSlowLoadThreshold ->
             let
-                content =
-                    case model.content of
-                        Loading ->
-                            LoadingSlowly
-
-                        other ->
-                            other
-
-                root =
-                    case model.root of
+                loading remote =
+                    case remote of
                         Loading ->
                             LoadingSlowly
 
                         other ->
                             other
             in
-            ( { model | content = content, root = root }, Cmd.none )
+            ( { model | content = loading model.content, root = loading model.root, zipper = loading model.zipper }, Cmd.none )
 
         DagPut zipper ->
             let
@@ -705,7 +697,7 @@ view model =
     --       Animation.render model.style
     --           |> List.map htmlAttribute
     --in
-    { title = "Suz-Dal App v0.1"
+    { title = "Suzdal v0.1 test"
     , content =
         case model.root of
             Success _ ->
@@ -713,15 +705,26 @@ view model =
                     [ spacing 15
                     , width fill
                     , height fill
+                    , Font.family
+                        [ Font.external
+                            { name = "Roboto"
+                            , url = "https://fonts.googleapis.com/css?family=Roboto"
+                            }
+                        , Font.sansSerif
+                        ]
                     ]
                     [ viewProblems model.problems
-                    , viewRemote (viewControls model.changes model.zipper) model.root
-                    , viewRemote (viewDAG model) model.zipper
-                    , el [ alignBottom, width fill ] <| viewLog model.log
+                    , viewRemote (spinner "Загрузка корневого хэша репозитория") (viewControls model.changes model.zipper) model.root
+                    , viewRemote (spinner "Загрузка дерева репозитория") (viewDAG model) model.zipper
+                    , row
+                        [ alignBottom, width fill ]
+                        [ viewLog model.log
+                        , el [ Font.size 12, width shrink, Font.color <| white 1.0 ] <| text "elm-ui 1.1.4 test"
+                        ]
                     ]
 
             LoadingSlowly ->
-                loader "Вычисляем корневой хэш репозитория..."
+                spinner "Вычисляем корневой хэш репозитория..."
 
             _ ->
                 none
@@ -729,7 +732,7 @@ view model =
 
 
 viewDAG : Model -> DAG -> Element Msg
-viewDAG model zipper =
+viewDAG model dag =
     let
         cellStyle alpha node =
             [ width fill
@@ -741,7 +744,7 @@ viewDAG model zipper =
 
         style node =
             if
-                List.member node (getCrumbs zipper [])
+                List.member node (getCrumbs dag [])
                     || node.location
                     == model.path.location
                     || isInfixOf model.path.location node.location
@@ -753,6 +756,9 @@ viewDAG model zipper =
 
         isCrumb node =
             el (style node) <| viewCell model.path node
+
+        focus =
+            Zipper.label dag
 
         haveParent z =
             case Zipper.removeTree z of
@@ -780,13 +786,13 @@ viewDAG model zipper =
             , alignTop
             , height fill
             ]
-            [ getContexts zipper []
+            [ getContexts dag []
                 |> List.map
                     (row [ width fill, height fill, spacing 5 ] << List.map isCrumb)
                 |> column [ width fill, spacing 5 ]
             , row
                 [ centerX, spacing 10 ]
-                [ button False Icons.plusCircle <| Append zipper
+                [ button False Icons.plusCircle <| Append dag
                 , button
                     False
                     (if model.shownodeprops then
@@ -796,81 +802,36 @@ viewDAG model zipper =
                         Icons.eye
                     )
                     InvertShowNodeProps
-                , button (not <| haveParent zipper) Icons.trash2 <| RemoveFocus zipper
+                , button (not <| haveParent dag) Icons.trash2 <| RemoveFocus dag
                 ]
             , hslSlider model.color
-            , viewNodeProps model.path.cid model.color (Zipper.label zipper) model.shownodeprops
+            , viewNodeProps model.path.cid model.color focus model.shownodeprops
             ]
-        , viewRemote (viewContent zipper url) model.content
+        , column
+            [ width fill
+            , height fill
+            , paddingEach { edges | right = 28, left = 15 }
+            , spacing 5
+            ]
+            [ row
+                [ width fill
+                , Border.color <| darkGrey 1.0
+                , Border.widthEach { edges | bottom = 2 }
+                ]
+                [ viewFocusTitle focus
+                , viewRemote none (viewContentEditor focus) model.content
+                ]
+            , viewRemote (spinner "Загрузка файлов") (viewContent dag url) model.content
+            ]
         ]
-
-
-viewCell : Path -> Node -> Element Msg
-viewCell path node =
-    case node.status of
-        Editing ->
-            Input.multiline
-                [ height fill
-                , width fill
-                , htmlAttribute <| Html.Attributes.id <| Route.locationToString "/" node.location
-                , Event.onLoseFocus <| UpdateFocus { node | status = Selected }
-                , Font.center
-                ]
-                { onChange = \new -> UpdateFocus { node | description = new }
-                , text = node.description
-                , placeholder = Just <| Input.placeholder [] <| el [] none
-                , label = Input.labelHidden "Data input"
-                , spellcheck = True
-                }
-
-        _ ->
-            el
-                [ mouseOver <|
-                    [ Border.shadow
-                        { offset = ( 1, 1 )
-                        , size = 1
-                        , blur = 0
-                        , color = lightGrey 1.0
-                        }
-                    ]
-                , width fill
-                , height (fill |> minimum 40)
-                , pointer
-                , Font.center
-                , padding 6
-                , htmlAttribute <| Html.Attributes.id <| Route.locationToString "/" node.location
-                , Event.onClick <| ChangeFocus node
-                , Event.onDoubleClick <| ChangeFocus { node | status = Editing }
-                ]
-            <|
-                paragraph [ centerY ] [ text node.description ]
 
 
 viewContent : DAG -> Url -> Content -> Element Msg
 viewContent dag url content =
-    let
-        node =
-            Zipper.label dag
-    in
     column
-        [ width fill
-        , height fill
-        , paddingEach { edges | right = 28, left = 15 }
-        , spacing 5
-        ]
-        [ row
-            [ width fill
-            , Border.color <| darkGrey 1.0
-            , Border.widthEach { edges | bottom = 2 }
-            ]
-            [ viewFocusTitle dag
-            , viewContentEditor node content
-            ]
-        , column
-            [ scrollbarY, width fill, height fill, paddingEach { edges | right = 10 } ]
-          <|
-            List.map (viewNodeAsFile url node) content
-        ]
+        [ scrollbarY, width fill, height fill, paddingEach { edges | right = 10 } ]
+    <|
+        List.map (viewNodeAsFile url <| Zipper.label dag) content
 
 
 line : Element Msg
@@ -878,29 +839,12 @@ line =
     el [ height <| px 3, Background.color <| lightGrey 0.5, centerY, width fill ] <| text ""
 
 
-tooltip : String -> List (E.Attribute msg)
-tooltip str =
-    [ htmlAttribute <| Html.Attributes.attribute "class" "tooltipped tooltipped-e tooltipped-no-delay border p-2 mb-2 mr-2 float-left"
-    , htmlAttribute <| Html.Attributes.attribute "aria-label" str
-    ]
-
-
 viewContentEditor : Node -> Content -> Element Msg
 viewContentEditor node content =
     row
         [ alignRight ]
-        [ el
-            [ htmlAttribute <| Html.Attributes.attribute "class" "tooltipped tooltipped-s tooltipped-no-delay border p-2 mb-2 mr-2 float-left"
-            , htmlAttribute <| Html.Attributes.attribute "aria-label" "Добавить текст"
-            ]
-          <|
-            button False Icons.fileText (AddText content)
-        , el
-            [ htmlAttribute <| Html.Attributes.attribute "class" "tooltipped tooltipped-s tooltipped-no-delay border p-2 mb-2 mr-2 float-left"
-            , htmlAttribute <| Html.Attributes.attribute "aria-label" "Добавить файл"
-            ]
-          <|
-            button False Icons.filePlus (Pick node content)
+        [ button False Icons.fileText (AddText content)
+        , button False Icons.filePlus (Pick node content)
 
         --, el [ alignRight, transparent (List.isEmpty content) ] <|
         --    button False Icons.trash2 <|
@@ -908,15 +852,14 @@ viewContentEditor node content =
         ]
 
 
-viewFocusTitle : DAG -> Element Msg
-viewFocusTitle zipper =
+viewFocusTitle : Node -> Element Msg
+viewFocusTitle node =
     paragraph
-        [ --paddingEach { edges | top = 20, bottom = 7 }
-          Font.size 24
+        [ Font.size 24
         , width fill
         , centerY
         ]
-        [ text <| .description <| Zipper.label zipper ]
+        [ text node.description ]
 
 
 viewLog : List Entry -> Element Msg
@@ -981,6 +924,47 @@ viewEntry entry =
 --        ]
 --    <|
 --        text node.description
+
+
+viewCell : Path -> Node -> Element Msg
+viewCell path node =
+    case node.status of
+        Editing ->
+            Input.multiline
+                [ height fill
+                , width fill
+                , htmlAttribute <| Html.Attributes.id <| Route.locationToString "/" node.location
+                , Event.onLoseFocus <| UpdateFocus { node | status = Selected }
+                , Font.center
+                ]
+                { onChange = \new -> UpdateFocus { node | description = new }
+                , text = node.description
+                , placeholder = Just <| Input.placeholder [] <| el [] none
+                , label = Input.labelHidden "Data input"
+                , spellcheck = True
+                }
+
+        _ ->
+            el
+                [ mouseOver <|
+                    [ Border.shadow
+                        { offset = ( 1, 1 )
+                        , size = 1
+                        , blur = 0
+                        , color = lightGrey 1.0
+                        }
+                    ]
+                , width fill
+                , height (fill |> minimum 40)
+                , pointer
+                , Font.center
+                , padding 6
+                , htmlAttribute <| Html.Attributes.id <| Route.locationToString "/" node.location
+                , Event.onClick <| ChangeFocus node
+                , Event.onDoubleClick <| ChangeFocus { node | status = Editing }
+                ]
+            <|
+                paragraph [ centerY ] [ text node.description ]
 
 
 viewNodeProps : Hash -> Float -> Node -> Bool -> Element Msg
@@ -1085,9 +1069,9 @@ button disabled icon msg =
         }
 
 
-loader : String -> Element Msg
-loader str =
-    el [ centerX, centerY ] <| Loading.icon str
+spinner : String -> Element Msg
+spinner str =
+    el [ centerX, centerY, width fill, height fill ] <| Loading.icon str
 
 
 edges =
@@ -1162,17 +1146,22 @@ viewNodeAsFile url node file =
                     , Border.color <| darkGrey 1.0
                     , Event.onDoubleClick <| Perform node <| Set { file | status = Editing }
                     , Event.onClick <| Perform node <| Set { file | status = Completed }
-                    , Border.shadow
-                        { offset = ( 2, 2 )
-                        , size = 1
-                        , blur = 3
-                        , color = lightGrey 1.0
-                        }
+
+                    {- , Border.shadow
+                       { offset = ( 2, 2 )
+                       , size = 1
+                       , blur = 3
+                       , color = lightGrey 1.0
+                       }
+                    -}
                     ]
 
                 Editing ->
                     [ width fill
-                    , paddingXY 10 0
+                    , Background.color <| lightGrey 0.3
+                    , Border.width 1
+                    , Border.dashed
+                    , Border.color <| darkGrey 1.0
                     ]
 
                 _ ->
@@ -1234,8 +1223,13 @@ viewNodeAsFile url node file =
                 Just (Mime.Text Mime.PlainText) ->
                     if file.status == Editing then
                         Input.multiline
-                            ([ height fill
+                            ([ height (shrink |> minimum 30)
                              , width fill
+                             , padding 5
+                             , spacing 5
+                             , Border.widthEach edges
+                             , Border.color <| white 1.0
+                             , Border.rounded 0
                              , htmlAttribute <| Html.Attributes.id <| String.concat [ "file-id-", String.fromInt file.id ]
                              , Event.onLoseFocus <|
                                 if String.isEmpty file.description then
@@ -2152,14 +2146,14 @@ keyAction code zipper =
             zipper
 
 
-viewRemote : (a -> Element Msg) -> Remote a -> Element Msg
-viewRemote viewer remotecontent =
+viewRemote : Element Msg -> (a -> Element Msg) -> Remote a -> Element Msg
+viewRemote loader viewer remotecontent =
     case remotecontent of
         Success content ->
             viewer content
 
         LoadingSlowly ->
-            loader ""
+            loader
 
         _ ->
             none
