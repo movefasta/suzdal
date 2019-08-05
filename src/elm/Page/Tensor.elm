@@ -717,9 +717,9 @@ view model =
                     , viewRemote (spinner "Загрузка корневого хэша репозитория") (viewControls model.changes model.zipper) model.root
                     , viewRemote (spinner "Загрузка дерева репозитория") (viewDAG model) model.zipper
                     , row
-                        [ alignBottom, width fill ]
+                        [ alignBottom, width fill, padding 7, Background.color <| black 0.8, Font.size 12 ]
                         [ viewLog model.log
-                        , el [ Font.size 12, width shrink, Font.color <| white 1.0 ] <| text "elm-ui 1.1.4 test"
+                        , el [ width shrink, Font.color <| white 1.0, paddingXY 5 0 ] <| text "v0.1.0"
                         ]
                     ]
 
@@ -869,10 +869,7 @@ viewLog entries =
         |> List.map viewEntry
         |> column
             [ spacing 5
-            , Font.size 12
             , width fill
-            , padding 7
-            , Background.color <| black 0.8
             ]
 
 
@@ -1374,7 +1371,7 @@ viewControls changes zipper root =
                         ]
                         { onChange = UpdateQuery
                         , text = string
-                        , placeholder = Just <| Input.placeholder [] <| text "Идентификатор контента - хэш"
+                        , placeholder = Just <| Input.placeholder [] <| text "Введите идентификатор хранилища (хэш)"
                         , label = Input.labelAbove [] <| none
                         }
                 , updateButton string
