@@ -799,7 +799,8 @@ viewDAG model dag =
                     InvertShowNodeProps
                 , button (not <| haveParent dag) Icons.trash2 <| RemoveFocus dag
                 ]
-            , hslSlider model.color
+
+            --, hslSlider model.color
             , viewNodeProps model.path.cid model.color focus model.shownodeprops
             ]
         , column
@@ -998,41 +999,40 @@ viewNodeProps root hue node show =
             , placeholder = Just <| Input.placeholder [] <| text "Ссылки"
             , label = Input.labelAbove [] <| el [ Font.size 10 ] <| text "Адрес дочерних ячеек"
             }
-        , Input.radioRow
-            [ width fill
-            , spacing 5
-            ]
-            { onChange = \new -> UpdateFocus { node | color = new }
-            , selected = Just node.color
-            , label = Input.labelAbove [ padding 3 ] (el [ Font.size 10 ] <| text "Цвет")
-            , options =
-                let
-                    option i x =
-                        el
-                            [ width <| px 30
-                            , height <| px 25
-                            , Border.widthEach { bottom = 3, left = 0, right = 0, top = 0 }
-                            , Background.color <| colorCodeConverter i hue 1.0
-                            , Border.color <|
-                                case x of
-                                    Input.Idle ->
-                                        white 0
 
-                                    Input.Focused ->
-                                        lightGrey 0.8
-
-                                    Input.Selected ->
-                                        darkGrey 1.0
-                            ]
-                        <|
-                            text ""
-                in
-                List.range 0 9
-                    |> List.map
-                        (\code ->
-                            Input.optionWith code (option code)
-                        )
-            }
+        --, Input.radioRow
+        --    [ width fill
+        --    , spacing 5
+        --    ]
+        --    { onChange = \new -> UpdateFocus { node | color = new }
+        --    , selected = Just node.color
+        --    , label = Input.labelAbove [ padding 3 ] (el [ Font.size 10 ] <| text "Цвет")
+        --    , options =
+        --        let
+        --            option i x =
+        --                el
+        --                    [ width <| px 30
+        --                    , height <| px 25
+        --                    , Border.widthEach { bottom = 3, left = 0, right = 0, top = 0 }
+        --                    , Background.color <| colorCodeConverter i hue 1.0
+        --                    , Border.color <|
+        --                        case x of
+        --                            Input.Idle ->
+        --                                white 0
+        --                            Input.Focused ->
+        --                                lightGrey 0.8
+        --                            Input.Selected ->
+        --                                darkGrey 1.0
+        --                    ]
+        --                <|
+        --                    text ""
+        --        in
+        --        List.range 0 9
+        --            |> List.map
+        --                (\code ->
+        --                    Input.optionWith code (option code)
+        --                )
+        --    }
         , link
             [ Border.color <| black 1.0
             , Font.underline
