@@ -1178,7 +1178,7 @@ viewNodeAsFile url node file =
                         , Font.color <| lightGrey 1.0
                         , mouseOver [ Font.color <| black 1.0 ]
                         ]
-                        [ el [ width fill, padding 5, spacing 5, clip, Font.italic ] <| text file.name
+                        [ el [ width fill, padding 5, spacing 5, Font.italic ] <| text file.name
                         , html <|
                             Html.video
                                 [ Html.Attributes.src <| Endpoint.file url file.cid
