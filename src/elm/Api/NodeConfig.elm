@@ -124,7 +124,7 @@ type alias Experimental =
 
 
 type alias Gateway =
-    { apiCommands : Maybe ()
+    { apiCommands : Maybe (List String)
     , httpHeaders : Maybe HTTPHeaders
     , noFetch : Maybe Bool
     , pathPrefixes : Maybe (List Jdec.Value)
@@ -171,7 +171,7 @@ type alias Routing =
 
 
 type alias Swarm =
-    { addrFilters : Maybe ()
+    { addrFilters : Maybe (List String)
     , connMgr : Maybe ConnMgr
     , disableBandwidthMetrics : Maybe Bool
     , disableNatPortMap : Maybe Bool
@@ -421,7 +421,7 @@ encodeExperimental x =
 gateway : Jdec.Decoder Gateway
 gateway =
     Jdec.succeed Gateway
-        |> Jpipe.optional "APICommands" (Jdec.nullable (Jdec.null ())) Nothing
+        |> Jpipe.optional "APICommands" (Jdec.nullable (Jdec.list Jdec.string)) Nothing
         |> Jpipe.optional "HTTPHeaders" (Jdec.nullable httpHeaders) Nothing
         |> Jpipe.optional "NoFetch" (Jdec.nullable Jdec.bool) Nothing
         |> Jpipe.optional "PathPrefixes" (Jdec.nullable (Jdec.list Jdec.value)) Nothing
@@ -536,7 +536,7 @@ encodeRouting x =
 swarm : Jdec.Decoder Swarm
 swarm =
     Jdec.succeed Swarm
-        |> Jpipe.optional "AddrFilters" (Jdec.nullable (Jdec.null ())) Nothing
+        |> Jpipe.optional "AddrFilters" (Jdec.nullable (Jdec.list Jdec.string)) Nothing
         |> Jpipe.optional "ConnMgr" (Jdec.nullable connMgr) Nothing
         |> Jpipe.optional "DisableBandwidthMetrics" (Jdec.nullable Jdec.bool) Nothing
         |> Jpipe.optional "DisableNatPortMap" (Jdec.nullable Jdec.bool) Nothing

@@ -92,6 +92,7 @@ init session path =
       , changes = Dict.empty
       , shownodeprops = False
       , color = 0
+      , settings = Nothing
 
       --, style = Animation.style [ Animation.opacity 0.0 ]
       }
@@ -101,7 +102,7 @@ init session path =
             |> Task.andThen (\tree -> Task.succeed <| Zipper.fromTree <| expandFocus tree)
             |> Task.andThen (fetchZipper url <| pathlist path)
             |> Task.attempt GotDAG
-        , Api.storeSettings path
+        , Api.storePath path
         , Task.perform (\_ -> PassedSlowLoadThreshold) Loading.slowThreshold
         ]
     )
@@ -123,6 +124,7 @@ type ValidatedField
 
 type alias Model =
     { session : Session
+    , settings : Maybe Settings.Model
     , problems : List Problem
     , root : Remote ( Status, Hash )
     , zipper : Remote DAG
@@ -426,7 +428,7 @@ update msg model =
                   }
                 , Cmd.batch
                     [ Api.get (Endpoint.dagGet url node.cid) (GetNodeContent node.cid) contentDecoder
-                    , Api.storeSettings newPath
+                    , Api.storePath newPath
                     , if notHaveChildren then
                         getChildren url newPath.cid { node | expanded = True }
                             |> Task.attempt (AddTree node.location)
@@ -545,7 +547,7 @@ update msg model =
                     , Cmd.batch
                         [ Route.replaceUrl (Session.navKey model.session) (Route.Tensor newPath)
                         , Api.get (Endpoint.content url newPath) (GetNodeContent newPath.cid) contentDecoder
-                        , Api.storeSettings newPath
+                        , Api.storePath newPath
                         , createLogEntry currentPath "классификатор" currentPath.cid newPath.cid
                         ]
                     )
@@ -705,13 +707,6 @@ view model =
                     [ spacing 15
                     , width fill
                     , height fill
-                    , Font.family
-                        [ Font.external
-                            { name = "Roboto"
-                            , url = "https://fonts.googleapis.com/css?family=Roboto"
-                            }
-                        , Font.sansSerif
-                        ]
                     ]
                     [ viewProblems model.problems
                     , viewRemote (spinner "Загрузка корневого хэша репозитория") (viewControls model.changes model.zipper) model.root
@@ -933,6 +928,8 @@ viewCell path node =
                 , htmlAttribute <| Html.Attributes.id <| Route.locationToString "/" node.location
                 , Event.onLoseFocus <| UpdateFocus { node | status = Selected }
                 , Font.center
+                , centerX
+                , centerY
                 ]
                 { onChange = \new -> UpdateFocus { node | description = new }
                 , text = node.description

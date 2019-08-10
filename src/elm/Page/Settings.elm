@@ -27,6 +27,7 @@ import Json.Decode.Pipeline exposing (hardcoded, optional, required)
 import Json.Encode as Encode
 import Loading
 import Log
+import Process
 import Route
 import Session exposing (Session, url)
 import Task
@@ -46,8 +47,85 @@ type alias Model =
     , id : Status IpfsNodeID
     , shownodeprops : Bool
     , peers : List Peer
+
+    --, palette : Palette
+    --, red : Float
+    --, green : Float
+    --, blue : Float
+    --, alpha : Float
     }
 
+
+type alias Palette =
+    { yellow : Color
+    , red : Color
+    , violet : Color
+    , blue : Color
+    , cyan : Color
+    , green : Color
+    }
+
+
+
+--colorSlider : Model -> Element Msg
+--colorSlider model =
+--    Input.slider
+--        [ height (px 30)
+--        , behindContent
+--            (el
+--                [ width fill
+--                , height (px 2)
+--                , centerY
+--                , Background.color <| lightGrey 1.0
+--                , Border.rounded 2
+--                ]
+--                none
+--            )
+--        ]
+--        { onChange = ChangeColor
+--        , label = Input.labelAbove [] <| text <| "Цветовой регулятор ( " ++ String.fromFloat hue ++ " )"
+--        , min = 0
+--        , max = 255
+--        , step = 5
+--        , value = model.activecolor
+--        , thumb =
+--            Input.defaultThumb
+--        }
+--colorOptions : Model -> Element Msg
+--colorOptions model =
+--        Input.radioRow
+--            [ width fill
+--            , spacing 5
+--            ]
+--            { onChange = \new -> UpdateFocus { model | activecolor = new }
+--            , selected = Just model.color
+--            , label = Input.labelAbove [ padding 3 ] (el [ Font.size 10 ] <| text "Цвет")
+--            , options =
+--                let
+--                    option i x =
+--                        el
+--                            [ width <| px 30
+--                            , height <| px 25
+--                            , Border.widthEach { bottom = 3, left = 0, right = 0, top = 0 }
+--                            , Background.color model.activecolor
+--                            , Border.color <|
+--                                case x of
+--                                    Input.Idle ->
+--                                        white 0
+--                                    Input.Focused ->
+--                                        lightGrey 0.8
+--                                    Input.Selected ->
+--                                        darkGrey 1.0
+--                            ]
+--                        <|
+--                            text ""
+--                in
+--                List.range 0 9
+--                    |> List.map
+--                        (\code ->
+--                            Input.optionWith code (option code)
+--                        )
+--            }
 
 
 type alias Peer =
@@ -117,9 +195,9 @@ init session =
       , peers = []
       }
     , Cmd.batch
-        [ Api.fetchPeers ()
-        , Api.get (Endpoint.config <| Session.url session) GotConfig Api.NodeConfig.decoder
+        [ Api.get (Endpoint.config <| Session.url session) GotConfig Api.NodeConfig.decoder
         , Api.get (Endpoint.id <| Session.url session) GotNodeID idDecoder
+        , Process.sleep 100 |> Task.perform (always RetrievePeers)
         ]
     )
 
@@ -137,6 +215,272 @@ type ValidForm
 
 
 
+-- UPDATE
+
+
+type Msg
+    = SubmittedForm Form
+    | EnteredEmail String
+    | EnteredUsername String
+    | EnteredPassword String
+    | EnteredBio String
+    | EnteredAvatar String
+    | CompletedFormLoad (Result Http.Error Form)
+    | CompletedSave (Result Http.Error Hash)
+    | GotSession Session
+    | PassedSlowLoadThreshold
+    | UpdateLocalStorage String
+    | GotConfig (Result Http.Error IpfsNodeConfig)
+    | GotNodeID (Result Http.Error IpfsNodeID)
+    | PublishPeers (List Peer)
+    | Published (Result Http.Error String)
+    | GotPeerStatus Int (Result Http.Error String)
+    | GotPeers (Result Decode.Error (List Peer))
+    | Hover Int Bool
+    | AddPeer
+    | UpdatePeer Peer
+    | DeletePeer Int
+    | NoOp
+    | CheckPeers (List Peer)
+    | SavePeer Peer
+    | RetrievePeers
+
+
+update : Msg -> Model -> ( Model, Cmd Msg )
+update msg model =
+    let
+        url =
+            Session.url model.session
+    in
+    case msg of
+        NoOp ->
+            ( model, Cmd.none )
+
+        RetrievePeers ->
+            ( model, Api.retrieveObject "peers" )
+
+        Hover id bool ->
+            let
+                hover peer =
+                    if peer.id == id then
+                        { peer | hover = bool }
+
+                    else
+                        peer
+
+                newpeers =
+                    List.map hover model.peers
+            in
+            ( { model | peers = newpeers }, Cmd.none )
+
+        UpdatePeer updatedpeer ->
+            let
+                toggle peer =
+                    if peer.id == updatedpeer.id then
+                        updatedpeer
+
+                    else
+                        peer
+
+                newpeers =
+                    List.map toggle model.peers
+            in
+            ( { model | peers = newpeers }, Cmd.none )
+
+        SavePeer peertosave ->
+            let
+                newpeers =
+                    List.map
+                        (\peer ->
+                            if peer.id == peertosave.id then
+                                peertosave
+
+                            else
+                                peer
+                        )
+                        model.peers
+            in
+            ( { model | peers = newpeers }
+            , Cmd.batch [ checkPeer peertosave.id peertosave.hash "" url, Api.storePeers (encodePeers newpeers) ]
+            )
+
+        DeletePeer id ->
+            let
+                newpeers =
+                    model.peers
+                        |> List.filter (\peer -> peer.id /= id)
+                        |> List.indexedMap (\i peer -> { peer | id = i })
+            in
+            ( { model | peers = newpeers }, Api.storePeers (encodePeers newpeers) )
+
+        AddPeer ->
+            let
+                id =
+                    List.length model.peers + 1
+
+                newpeers =
+                    { id = id
+                    , hash = ""
+                    , isRelay = False
+                    , connection = NotAsked
+                    , hover = False
+                    , name = "Анонимный будетлянин №" ++ String.fromInt id
+                    , editing = True
+                    }
+                        :: model.peers
+            in
+            ( { model | peers = newpeers }, Cmd.none )
+
+        GotPeerStatus id result ->
+            let
+                set connection peer =
+                    if peer.id == id then
+                        { peer | connection = connection }
+
+                    else
+                        peer
+            in
+            case result of
+                Ok str ->
+                    ( { model | peers = List.map (set Online) model.peers }, Cmd.none )
+
+                Err problem ->
+                    ( { model | peers = List.map (set Offline) model.peers }, Cmd.none )
+
+        PublishPeers peers ->
+            ( model
+            , Cmd.none
+              --, Api.task "POST" (Endpoint.dagPut url) value Api.cidDecoder Api.get (Endpoint.publish url) Published <| Decode.field "Value" Decode.string
+            )
+
+        Published result ->
+            case result of
+                Ok string ->
+                    ( { model | problems = [ ServerError ("Список пиров опубликован. Текущий адрес: " ++ string) ] }, Cmd.none )
+
+                Err _ ->
+                    ( { model | problems = [ ServerError "Ошибка сохранения списка пиров" ] }, Cmd.none )
+
+        GotNodeID result ->
+            case result of
+                Ok data ->
+                    ( { model | id = Loaded data }
+                    , Cmd.none
+                      --Api.task "GET" (Endpoint.resolve url data.id) Http.emptyBody (Decode.field "Path" Decode.string)
+                      --    |> Task.andThen (\str -> Api.task "GET" (Endpoint.dagGet url str) Http.emptyBody decodePeers)
+                      --    |> Task.attempt GotPeers
+                    )
+
+                Err problems ->
+                    ( { model | id = Failed }, Cmd.none )
+
+        GotPeers result ->
+            case result of
+                Ok peers ->
+                    ( { model | peers = peers }, Cmd.none )
+
+                Err _ ->
+                    ( model, Cmd.none )
+
+        CheckPeers peers ->
+            ( { model | peers = List.map (\p -> { p | connection = Pending }) peers }
+            , Cmd.batch <| List.map (\peer -> checkPeer peer.id peer.hash "" url) peers
+            )
+
+        GotConfig result ->
+            case result of
+                Ok config ->
+                    ( { model | config = Loaded config }, Cmd.none )
+
+                Err problems ->
+                    ( { model | config = Failed }, Cmd.none )
+
+        UpdateLocalStorage hash ->
+            ( model, Api.storePath { cid = hash, location = [] } )
+
+        CompletedFormLoad (Ok form) ->
+            ( { model | status = Loaded form }
+            , Cmd.none
+            )
+
+        CompletedFormLoad (Err _) ->
+            ( { model | status = Failed }
+            , Cmd.none
+            )
+
+        SubmittedForm form ->
+            case validate form of
+                Ok validForm ->
+                    ( { model | status = Loaded form }
+                    , Api.put (Session.url model.session) (body validForm) CompletedSave
+                    )
+
+                Err problems ->
+                    ( { model | problems = problems }
+                    , Cmd.none
+                    )
+
+        EnteredEmail email ->
+            updateForm (\form -> { form | email = email }) model
+
+        EnteredUsername username ->
+            updateForm (\form -> { form | username = username }) model
+
+        EnteredPassword password ->
+            updateForm (\form -> { form | password = password }) model
+
+        EnteredBio bio ->
+            updateForm (\form -> { form | bio = bio }) model
+
+        EnteredAvatar avatar ->
+            updateForm (\form -> { form | avatar = avatar }) model
+
+        CompletedSave (Err error) ->
+            let
+                serverErrors =
+                    Api.decodeErrors error
+                        |> List.map ServerError
+            in
+            ( { model | problems = List.append model.problems serverErrors }
+            , Cmd.none
+            )
+
+        CompletedSave (Ok hash) ->
+            ( model
+            , Api.storePath { cid = hash, location = [] }
+            )
+
+        GotSession session ->
+            ( { model | session = session }
+            , Cmd.none
+              -- Route.replaceUrl (Session.navKey session) Route.Home
+            )
+
+        PassedSlowLoadThreshold ->
+            case model.status of
+                Loading ->
+                    ( { model | status = LoadingSlowly }
+                    , Cmd.none
+                    )
+
+                _ ->
+                    ( model, Cmd.none )
+
+
+{-| Helper function for `update`. Updates the form and returns Cmd.none.
+Useful for recording form fields!
+-}
+updateForm : (Form -> Form) -> Model -> ( Model, Cmd msg )
+updateForm transform model =
+    case model.status of
+        Loaded form ->
+            ( { model | status = Loaded (transform form) }, Cmd.none )
+
+        _ ->
+            ( model, Log.error )
+
+
+
 -- VIEW
 
 
@@ -145,64 +489,42 @@ view model =
     { title = "Настройки"
     , content =
         row
-            [ width shrink
+            [ width fill
+            , height fill
             , Font.size 12
             , paddingXY 25 10
             , alignTop
             , spacing 20
             , Font.color <| black 1.0
-            , Font.family
-                [ Font.typeface "Ubuntu-Regular"
-                , Font.sansSerif
-                ]
+            , htmlAttribute (Html.Attributes.style "flex-shrink" "1")
+            , clip
             ]
             [ viewPeers model.peers
             , column
-                [ width shrink, spacing 15, alignTop ]
+                [ width fill, spacing 15, alignTop ]
                 [ header "Идентификационные данные", viewID model.id ]
+            , case model.config of
+                Loaded config ->
+                    column
+                        [ width fill, height fill, spacing 15, scrollbarY ]
+                        [ header "Конфигурация"
+                        , maybeView viewSwarmConfig config.swarm
+                        , viewRawConfig config
+                        ]
+
+                Failed ->
+                    text "Fetching IPFS config failed"
+
+                _ ->
+                    Loading.icon "Загрузка конфигурации..."
             ]
     }
-
-
-header : String -> Element Msg
-header str =
-    el
-        [ Border.color <| darkGrey 1.0
-        , Border.widthEach { edges | bottom = 2 }
-        , Font.size 20
-        , width shrink
-        , paddingXY 0 10
-        ]
-    <|
-        text str
-
-
-edges =
-    { top = 0
-    , right = 0
-    , bottom = 0
-    , left = 0
-    }
-
-
-onEnter : Msg -> Attribute Msg
-onEnter msg =
-    let
-        isEnter code =
-            if code == 13 then
-                Decode.succeed msg
-
-            else
-                Decode.fail "not ENTER"
-    in
-    HtmlEvents.on "keydown" (Decode.andThen isEnter HtmlEvents.keyCode)
-        |> htmlAttribute
 
 
 viewPeers : List Peer -> Element Msg
 viewPeers peers =
     column
-        [ width shrink, spacing 15, alignTop ]
+        [ width fill, spacing 15, alignTop ]
         [ row
             [ spacing 10 ]
             [ header "Список пиров"
@@ -359,32 +681,57 @@ viewPeerProperties peer =
         ]
 
 
-viewConfig : Status IpfsNodeConfig -> Element Msg
-viewConfig fetched =
-    case fetched of
-        Loading ->
-            text "Загрузка конфигурационного файла..."
-
-        LoadingSlowly ->
-            text "Загрузка медленная ..."
-
-        Loaded config ->
-            Api.NodeConfig.encoder config
-                |> Html.text
-                |> html
-                |> el [ alignTop, width fill, height shrink, Font.size 14 ]
-
-        Failed ->
-            text "Ошибка запроса конфигурационного файла узла"
+viewRawConfig : IpfsNodeConfig -> Element Msg
+viewRawConfig config =
+    Input.multiline
+        [ alignTop, width fill, height fill ]
+        { onChange = \_ -> NoOp
+        , text = Api.NodeConfig.encoder config
+        , placeholder = Nothing
+        , label = Input.labelHidden "IPFS config show"
+        , spellcheck = False
+        }
 
 
 viewIdProperty : String -> Element Msg -> Element Msg
 viewIdProperty name value =
-    column
+    row
         [ spacing 10 ]
         [ el [ Font.color <| Colors.darkGrey 1.0, Font.size 11 ] <| text name
         , el [ padding 8, Background.color <| Colors.lightGrey 0.5, width fill ] value
         ]
+
+
+viewSwarmConfig : Api.NodeConfig.Swarm -> Element Msg
+viewSwarmConfig swarm =
+    column
+        [ alignTop, width fill, spacing 10 ]
+        [ viewFlag "Disable Bandwidth Metrics" swarm.disableBandwidthMetrics
+        , viewFlag "Disable NAT port map" swarm.disableNatPortMap
+        , viewFlag "Disable Relay" swarm.disableRelay
+        , viewFlag "Enable AutoNAT Service" swarm.enableAutoNATService
+        , viewFlag "Enable Auto Relay" swarm.enableAutoRelay
+        , viewFlag "Enable Relay Hop" swarm.enableRelayHop
+        ]
+
+
+viewFlag : String -> Maybe Bool -> Element Msg
+viewFlag name value =
+    case value of
+        Just bool ->
+            row
+                [ width fill ]
+                [ viewIdProperty name <|
+                    text <|
+                        if bool then
+                            "true"
+
+                        else
+                            "false"
+                ]
+
+        Nothing ->
+            none
 
 
 viewID : Status IpfsNodeID -> Element Msg
@@ -421,265 +768,52 @@ checkPeer id hash relay url =
 
 
 
--- UPDATE
+-- HELPERS
 
 
-type Msg
-    = SubmittedForm Form
-    | EnteredEmail String
-    | EnteredUsername String
-    | EnteredPassword String
-    | EnteredBio String
-    | EnteredAvatar String
-    | CompletedFormLoad (Result Http.Error Form)
-    | CompletedSave (Result Http.Error Hash)
-    | GotSession Session
-    | PassedSlowLoadThreshold
-    | UpdateLocalStorage String
-    | GotConfig (Result Http.Error IpfsNodeConfig)
-    | GotNodeID (Result Http.Error IpfsNodeID)
-    | PublishPeers (List Peer)
-    | Published (Result Http.Error String)
-    | GotPeerStatus Int (Result Http.Error String)
-    | GotPeers (Result Decode.Error (List Peer))
-    | Hover Int Bool
-    | AddPeer
-    | UpdatePeer Peer
-    | DeletePeer Int
-    | NoOp
-    | CheckPeers (List Peer)
-    | SavePeer Peer
+maybeView : (a -> Element Msg) -> Maybe a -> Element Msg
+maybeView viewer maybe =
+    case maybe of
+        Just value ->
+            viewer value
+
+        Nothing ->
+            none
 
 
-update : Msg -> Model -> ( Model, Cmd Msg )
-update msg model =
+header : String -> Element Msg
+header str =
+    el
+        [ Border.color <| darkGrey 1.0
+        , Border.widthEach { edges | bottom = 2 }
+        , Font.size 20
+        , width shrink
+        , paddingXY 0 10
+        ]
+    <|
+        text str
+
+
+edges =
+    { top = 0
+    , right = 0
+    , bottom = 0
+    , left = 0
+    }
+
+
+onEnter : Msg -> Attribute Msg
+onEnter msg =
     let
-        url =
-            Session.url model.session
+        isEnter code =
+            if code == 13 then
+                Decode.succeed msg
+
+            else
+                Decode.fail "not ENTER"
     in
-    case msg of
-        NoOp ->
-            ( model, Cmd.none )
-
-        Hover id bool ->
-            let
-                hover peer =
-                    if peer.id == id then
-                        { peer | hover = bool }
-
-                    else
-                        peer
-
-                newpeers =
-                    List.map hover model.peers
-            in
-            ( { model | peers = newpeers }, Cmd.none )
-
-        UpdatePeer updatedpeer ->
-            let
-                toggle peer =
-                    if peer.id == updatedpeer.id then
-                        updatedpeer
-
-                    else
-                        peer
-
-                newpeers =
-                    List.map toggle model.peers
-            in
-            ( { model | peers = newpeers }, Api.storePeers (encodePeers newpeers) )
-
-        SavePeer peertosave ->
-            let
-                newpeers =
-                    List.map
-                        (\peer ->
-                            if peer.id == peertosave.id then
-                                peertosave
-
-                            else
-                                peer
-                        )
-                        model.peers
-            in
-            ( { model | peers = newpeers }
-            , Cmd.batch [ checkPeer peertosave.id peertosave.hash "" url, Api.storePeers (encodePeers newpeers) ]
-            )
-
-        DeletePeer id ->
-            let
-                newpeers =
-                    model.peers
-                        |> List.filter (\peer -> peer.id /= id)
-                        |> List.indexedMap (\i peer -> { peer | id = i })
-            in
-            ( { model | peers = newpeers }, Api.storePeers (encodePeers newpeers) )
-
-        AddPeer ->
-            let
-                id =
-                    List.length model.peers + 1
-
-                newpeers =
-                    { id = id
-                    , hash = ""
-                    , isRelay = False
-                    , connection = NotAsked
-                    , hover = False
-                    , name = "Анонимный будетлянин"
-                    , editing = True
-                    }
-                        :: model.peers
-            in
-            ( { model | peers = newpeers }, Cmd.none )
-
-        GotPeerStatus id result ->
-            let
-                set connection peer =
-                    if peer.id == id then
-                        { peer | connection = connection }
-
-                    else
-                        peer
-            in
-            case result of
-                Ok str ->
-                    ( { model | peers = List.map (set Online) model.peers }, Cmd.none )
-
-                Err problem ->
-                    ( { model | peers = List.map (set Offline) model.peers }, Cmd.none )
-
-        PublishPeers peers ->
-            ( model
-            , Cmd.none
-              --, Api.task "POST" (Endpoint.dagPut url) value Api.cidDecoder Api.get (Endpoint.publish url) Published <| Decode.field "Value" Decode.string
-            )
-
-        Published result ->
-            case result of
-                Ok string ->
-                    ( { model | problems = [ ServerError ("Список пиров опубликован. Текущий адрес: " ++ string) ] }, Cmd.none )
-
-                Err _ ->
-                    ( { model | problems = [ ServerError "Ошибка сохранения списка пиров" ] }, Cmd.none )
-
-        GotNodeID result ->
-            case result of
-                Ok data ->
-                    ( { model | id = Loaded data }
-                    , Cmd.none
-                      --Api.task "GET" (Endpoint.resolve url data.id) Http.emptyBody (Decode.field "Path" Decode.string)
-                      --    |> Task.andThen (\str -> Api.task "GET" (Endpoint.dagGet url str) Http.emptyBody decodePeers)
-                      --    |> Task.attempt GotPeers
-                    )
-
-                Err problems ->
-                    ( { model | id = Failed }, Cmd.none )
-
-        GotPeers result ->
-            case result of
-                Ok peers ->
-                    ( { model | peers = peers }, Cmd.none )
-
-                Err _ ->
-                    ( model, Cmd.none )
-
-        CheckPeers peers ->
-            ( { model | peers = List.map (\p -> { p | connection = Pending }) peers }
-            , Cmd.batch <| List.map (\peer -> checkPeer peer.id peer.hash "" url) peers
-            )
-
-        GotConfig result ->
-            case result of
-                Ok config ->
-                    ( { model | config = Loaded config }, Cmd.none )
-
-                Err problems ->
-                    ( { model | config = Failed }, Cmd.none )
-
-        UpdateLocalStorage hash ->
-            ( model, Api.storeSettings { cid = hash, location = [] } )
-
-        CompletedFormLoad (Ok form) ->
-            ( { model | status = Loaded form }
-            , Cmd.none
-            )
-
-        CompletedFormLoad (Err _) ->
-            ( { model | status = Failed }
-            , Cmd.none
-            )
-
-        SubmittedForm form ->
-            case validate form of
-                Ok validForm ->
-                    ( { model | status = Loaded form }
-                    , Api.put (Session.url model.session) (body validForm) CompletedSave
-                    )
-
-                Err problems ->
-                    ( { model | problems = problems }
-                    , Cmd.none
-                    )
-
-        EnteredEmail email ->
-            updateForm (\form -> { form | email = email }) model
-
-        EnteredUsername username ->
-            updateForm (\form -> { form | username = username }) model
-
-        EnteredPassword password ->
-            updateForm (\form -> { form | password = password }) model
-
-        EnteredBio bio ->
-            updateForm (\form -> { form | bio = bio }) model
-
-        EnteredAvatar avatar ->
-            updateForm (\form -> { form | avatar = avatar }) model
-
-        CompletedSave (Err error) ->
-            let
-                serverErrors =
-                    Api.decodeErrors error
-                        |> List.map ServerError
-            in
-            ( { model | problems = List.append model.problems serverErrors }
-            , Cmd.none
-            )
-
-        CompletedSave (Ok hash) ->
-            ( model
-            , Api.storeSettings { cid = hash, location = [] }
-            )
-
-        GotSession session ->
-            ( { model | session = session }
-            , Cmd.none
-              -- Route.replaceUrl (Session.navKey session) Route.Home
-            )
-
-        PassedSlowLoadThreshold ->
-            case model.status of
-                Loading ->
-                    ( { model | status = LoadingSlowly }
-                    , Cmd.none
-                    )
-
-                _ ->
-                    ( model, Cmd.none )
-
-
-{-| Helper function for `update`. Updates the form and returns Cmd.none.
-Useful for recording form fields!
--}
-updateForm : (Form -> Form) -> Model -> ( Model, Cmd msg )
-updateForm transform model =
-    case model.status of
-        Loaded form ->
-            ( { model | status = Loaded (transform form) }, Cmd.none )
-
-        _ ->
-            ( model, Log.error )
+    HtmlEvents.on "keydown" (Decode.andThen isEnter HtmlEvents.keyCode)
+        |> htmlAttribute
 
 
 
@@ -689,11 +823,13 @@ updateForm transform model =
 subscriptions : Model -> Sub Msg
 subscriptions model =
     let
-        decoder value =
-            Decode.decodeValue Decode.string value
-                |> Result.andThen (Decode.decodeString decodePeers)
+        decoder =
+            Decode.decodeValue decodePeers
+
+        retrieval ( key, json ) =
+            GotPeers (decoder json)
     in
-    Api.getPeers (GotPeers << decoder)
+    Api.objectRetrieved retrieval
 
 
 

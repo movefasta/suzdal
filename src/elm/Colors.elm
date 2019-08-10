@@ -125,6 +125,11 @@ toHsl r g b a =
     }
 
 
+toColor : Float -> Float -> Float -> Float -> Color
+toColor r g b a =
+    rgba r g b a
+
+
 
 -- COLOR PROPERTIES
 

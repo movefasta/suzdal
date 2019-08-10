@@ -1,47 +1,43 @@
 'use strict';
 
-//require('./assets/css/primer-tooltips.css');
 require('./assets/images/loading.svg');
 
-const IPFS = require('ipfs');
-const OrbitDB = require('orbit-db');
-
 const { Elm } = require('../elm/Main');
-var storageKey = "suzdal";
-var flags = localStorage.getItem(storageKey);
-// console.log("Retrieved State: ", flags);
 
 var app = Elm.Main.init({
-    flags: flags
+    flags: localStorage.getItem('suzdal')
 });
 
-// peers local storage
+initLocalStoragePort(app);
 
-app.ports.storePeers.subscribe(function(val) {
-    localStorage.setItem("peers", JSON.stringify(val));
-});
+const storage = window.localStorage || {
+  setItem(k, v) {
+    this[k] = v;
+  },
+  getItem(k) {
+    return this[k];
+  }
+};
 
-app.ports.fetchPeers.subscribe(function() {
-    var peers = localStorage.getItem('peers');
-    setTimeout(function() { 
-        app.ports.getPeers.send(peers);
-    }, 200);
-});
+function initLocalStoragePort(elmApp) {
+  elmApp.ports.storeObject.subscribe(function ([key, state]) {
+    storeObject(key, state);
+    elmApp.ports.objectRetrieved.send([key, state]);
+  });
+  elmApp.ports.retrieveObject.subscribe(function (key) {
+    const o = retrieveObject(key);
+    elmApp.ports.objectRetrieved.send([key, o]);
+  });
+};
 
-app.ports.setStorage.subscribe(function(val) {
-    if (val === null) {
-        localStorage.removeItem(storageKey);
-    } else {
-        localStorage.setItem(storageKey, JSON.stringify(val));
-    }
+function storeObject(key, object) {
+  storage.setItem(key, JSON.stringify(object));
+  console.log("Stored Object: ", object);
+};
 
-    // Report that the new session was stored succesfully.
-    // setTimeout(function() { app.ports.onStoreChange.send(val); }, 0);
-});
-
-// Whenever localStorage changes in another tab, report it if necessary.
-window.addEventListener("storage", function(event) {
-    if (event.storageArea === localStorage && event.key === storageKey) {
-        app.ports.onStoreChange.send(event.newValue);
-    }
-}, false);
+function retrieveObject(key) {
+  console.log("Retrieve by Key: ", key);
+  const value = storage.getItem(key);
+  return value ? JSON.parse(value) : null;
+  console.log("Retrieve Object: ", value);
+};

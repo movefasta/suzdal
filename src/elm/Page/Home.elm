@@ -133,11 +133,7 @@ toSession model =
 
 storeBookmarks : List Bookmark -> Cmd msg
 storeBookmarks bookmarks =
-    let
-        json =
-            bookmarksEncoder bookmarks
-    in
-    Api.setStorage (Just json)
+    Api.storeBookmarks (bookmarksEncoder bookmarks)
 
 
 

@@ -1,4 +1,4 @@
-port module Api exposing (Hash, addServerError, application, check, cidDecoder, decodeErrors, fetchPeers, get, getPeers, pathDecoder, pathEncoder, post, put, setStorage, settings, storePeers, storeSettings, task, viewerChanges)
+port module Api exposing (Hash, addServerError, application, check, cidDecoder, decodeErrors, get, objectRetrieved, pathDecoder, pathEncoder, post, put, retrieveObject, setStorage, settings, storeBookmarks, storeObject, storePath, storePeers, task, viewerChanges)
 
 {-| This module is responsible for communicating to the IPFS API.
 -}
@@ -48,19 +48,19 @@ cidDecoder =
 -- PORTS
 
 
+port setStorage : Maybe Value -> Cmd msg
+
+
 port onStoreChange : (Value -> msg) -> Sub msg
 
 
-port getPeers : (Encode.Value -> msg) -> Sub msg
+port storeObject : ( String, Value ) -> Cmd msg
 
 
-port fetchPeers : () -> Cmd msg
+port retrieveObject : String -> Cmd msg
 
 
-port storePeers : Encode.Value -> Cmd msg
-
-
-port setStorage : Maybe Value -> Cmd msg
+port objectRetrieved : (( String, Value ) -> msg) -> Sub msg
 
 
 viewerChanges : (Path -> msg) -> Decoder Path -> Sub msg
@@ -75,15 +75,6 @@ viewerChanges toMsg decoder =
                     { cid = "", location = [] }
     in
     onStoreChange (\value -> toMsg (decodeFromChange decoder value))
-
-
-storeSettings : Path -> Cmd msg
-storeSettings path =
-    let
-        json =
-            pathEncoder path
-    in
-    setStorage (Just json)
 
 
 
@@ -300,12 +291,36 @@ fromPair ( field, errors ) =
 
 
 
+-- LOCALSTORAGE FUNCTIONS
+
+
+storePeers : Encode.Value -> Cmd msg
+storePeers value =
+    storeObject ( peersStorageKey, value )
+
+
+storePath : Path -> Cmd msg
+storePath path =
+    storeObject ( pathStorageKey, pathEncoder path )
+
+
+storeBookmarks : Encode.Value -> Cmd msg
+storeBookmarks value =
+    storeObject ( bookmarksStorageKey, value )
+
+
+settingsBookmarks : Encode.Value -> Cmd msg
+settingsBookmarks value =
+    storeObject ( settingsStorageKey, value )
+
+
+
 -- LOCALSTORAGE KEYS
 
 
-urlStorageKey : String
-urlStorageKey =
-    "url"
+peersStorageKey : String
+peersStorageKey =
+    "peers"
 
 
 settingsStorageKey : String
@@ -313,11 +328,11 @@ settingsStorageKey =
     "settings"
 
 
-cacheStorageKey : String
-cacheStorageKey =
-    "cache"
+bookmarksStorageKey : String
+bookmarksStorageKey =
+    "bookmarks"
 
 
-credStorageKey : String
-credStorageKey =
-    "cred"
+pathStorageKey : String
+pathStorageKey =
+    "suzdal"
