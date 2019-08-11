@@ -1175,7 +1175,7 @@ viewNodeAsFile url node file =
                 Just (Mime.Video _) ->
                     column
                         [ width fill
-                        , Font.color <| lightGrey 1.0
+                        , Font.color <| darkGrey 1.0
                         , mouseOver [ Font.color <| black 1.0 ]
                         ]
                         [ el [ width fill, padding 5, spacing 5, Font.italic ] <| text file.name
