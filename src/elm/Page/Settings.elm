@@ -3,6 +3,7 @@ module Page.Settings exposing (Model, Msg, init, subscriptions, toSession, updat
 import Api exposing (Hash)
 import Api.Endpoint as Endpoint
 import Api.NodeConfig exposing (IpfsNodeConfig)
+import Api.SwarmPeers exposing (SwarmPeers)
 import Avatar
 import Browser.Dom as Dom
 import Browser.Events
@@ -35,6 +36,50 @@ import Url exposing (Url)
 import Username as Username exposing (Username)
 
 
+init : Session -> ( Model, Cmd Msg )
+init session =
+    ( { session = session
+      , problems = []
+      , status = Loading
+      , config = Loading
+      , id = Loading
+      , shownodeprops = False
+      , peers = []
+      , swarm = Loading
+      }
+    , Cmd.batch
+        [ Api.get (Endpoint.config <| Session.url session) GotConfig Api.NodeConfig.decoder
+        , Api.get (Endpoint.id <| Session.url session) GotNodeID idDecoder
+        , Process.sleep 100 |> Task.perform (always RetrieveLocalStoragePeers)
+        ]
+    )
+
+
+
+-- EXPORT
+
+
+toSession : Model -> Session
+toSession model =
+    model.session
+
+
+
+-- SUBSCRIPTIONS
+
+
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    let
+        decoder =
+            Decode.decodeValue decodePeers
+
+        retrieval ( key, json ) =
+            GotPeers (decoder json)
+    in
+    Api.objectRetrieved retrieval
+
+
 
 -- MODEL
 
@@ -47,6 +92,7 @@ type alias Model =
     , id : Status IpfsNodeID
     , shownodeprops : Bool
     , peers : List Peer
+    , swarm : Status SwarmPeers
 
     --, palette : Palette
     --, red : Float
@@ -64,68 +110,6 @@ type alias Palette =
     , cyan : Color
     , green : Color
     }
-
-
-
---colorSlider : Model -> Element Msg
---colorSlider model =
---    Input.slider
---        [ height (px 30)
---        , behindContent
---            (el
---                [ width fill
---                , height (px 2)
---                , centerY
---                , Background.color <| lightGrey 1.0
---                , Border.rounded 2
---                ]
---                none
---            )
---        ]
---        { onChange = ChangeColor
---        , label = Input.labelAbove [] <| text <| "Цветовой регулятор ( " ++ String.fromFloat hue ++ " )"
---        , min = 0
---        , max = 255
---        , step = 5
---        , value = model.activecolor
---        , thumb =
---            Input.defaultThumb
---        }
---colorOptions : Model -> Element Msg
---colorOptions model =
---        Input.radioRow
---            [ width fill
---            , spacing 5
---            ]
---            { onChange = \new -> UpdateFocus { model | activecolor = new }
---            , selected = Just model.color
---            , label = Input.labelAbove [ padding 3 ] (el [ Font.size 10 ] <| text "Цвет")
---            , options =
---                let
---                    option i x =
---                        el
---                            [ width <| px 30
---                            , height <| px 25
---                            , Border.widthEach { bottom = 3, left = 0, right = 0, top = 0 }
---                            , Background.color model.activecolor
---                            , Border.color <|
---                                case x of
---                                    Input.Idle ->
---                                        white 0
---                                    Input.Focused ->
---                                        lightGrey 0.8
---                                    Input.Selected ->
---                                        darkGrey 1.0
---                            ]
---                        <|
---                            text ""
---                in
---                List.range 0 9
---                    |> List.map
---                        (\code ->
---                            Input.optionWith code (option code)
---                        )
---            }
 
 
 type alias Peer =
@@ -184,24 +168,6 @@ type Problem
     | ServerError String
 
 
-init : Session -> ( Model, Cmd Msg )
-init session =
-    ( { session = session
-      , problems = []
-      , status = Loading
-      , config = Loading
-      , id = Loading
-      , shownodeprops = False
-      , peers = []
-      }
-    , Cmd.batch
-        [ Api.get (Endpoint.config <| Session.url session) GotConfig Api.NodeConfig.decoder
-        , Api.get (Endpoint.id <| Session.url session) GotNodeID idDecoder
-        , Process.sleep 100 |> Task.perform (always RetrievePeers)
-        ]
-    )
-
-
 {-| A form that has been validated. Only the `edit` function uses this. Its
 purpose is to prevent us from forgetting to validate the form before passing
 it to `edit`.
@@ -243,7 +209,8 @@ type Msg
     | NoOp
     | CheckPeers (List Peer)
     | SavePeer Peer
-    | RetrievePeers
+    | RetrieveLocalStoragePeers
+    | GotSwarmPeers (Result Http.Error SwarmPeers)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -256,7 +223,7 @@ update msg model =
         NoOp ->
             ( model, Cmd.none )
 
-        RetrievePeers ->
+        RetrieveLocalStoragePeers ->
             ( model, Api.retrieveObject "peers" )
 
         Hover id bool ->
@@ -377,7 +344,31 @@ update msg model =
         GotPeers result ->
             case result of
                 Ok peers ->
-                    ( { model | peers = peers }, Cmd.none )
+                    ( { model | peers = peers }
+                    , Api.get (Endpoint.swarmPeers <| Session.url model.session) GotSwarmPeers Api.SwarmPeers.decoder
+                    )
+
+                Err _ ->
+                    ( model, Cmd.none )
+
+        GotSwarmPeers result ->
+            case result of
+                Ok swarm ->
+                    ( { model
+                        | swarm = Loaded swarm
+                        , peers =
+                            List.map
+                                (\peer ->
+                                    if Api.SwarmPeers.inSwarm peer.hash swarm then
+                                        { peer | connection = Online }
+
+                                    else
+                                        peer
+                                )
+                                model.peers
+                      }
+                    , Cmd.none
+                    )
 
                 Err _ ->
                     ( model, Cmd.none )
@@ -499,7 +490,7 @@ view model =
             , htmlAttribute (Html.Attributes.style "flex-shrink" "1")
             , clip
             ]
-            [ viewPeers model.peers
+            [ viewPeers model.swarm model.peers
             , column
                 [ width fill, spacing 15, alignTop ]
                 [ header "Идентификационные данные", viewID model.id ]
@@ -521,13 +512,13 @@ view model =
     }
 
 
-viewPeers : List Peer -> Element Msg
-viewPeers peers =
+viewPeers : Status SwarmPeers -> List Peer -> Element Msg
+viewPeers response peers =
     column
         [ width fill, spacing 15, alignTop ]
         [ row
             [ spacing 10 ]
-            [ header "Список пиров"
+            [ header "Список избранных пиров"
             , el
                 [ Event.onClick AddPeer, pointer, width <| px 22, height <| px 22 ]
               <|
@@ -536,6 +527,17 @@ viewPeers peers =
                 [ Event.onClick <| CheckPeers peers, pointer, width <| px 22, height <| px 22 ]
               <|
                 html Icons.refreshCcw
+            , el [ Font.italic, Font.size 12, paddingXY 7 0 ] <|
+                text <|
+                    case response of
+                        Loaded swarm ->
+                            "Всего онлайн : " ++ String.fromInt (Api.SwarmPeers.amount swarm)
+
+                        Failed ->
+                            "Ошибка запроса списка пиров"
+
+                        _ ->
+                            "Запрос списка пиров..."
             ]
         , column [] <| List.map viewPeer peers
         ]
@@ -817,22 +819,65 @@ onEnter msg =
 
 
 
--- SUBSCRIPTIONS
-
-
-subscriptions : Model -> Sub Msg
-subscriptions model =
-    let
-        decoder =
-            Decode.decodeValue decodePeers
-
-        retrieval ( key, json ) =
-            GotPeers (decoder json)
-    in
-    Api.objectRetrieved retrieval
-
-
-
+--colorSlider : Model -> Element Msg
+--colorSlider model =
+--    Input.slider
+--        [ height (px 30)
+--        , behindContent
+--            (el
+--                [ width fill
+--                , height (px 2)
+--                , centerY
+--                , Background.color <| lightGrey 1.0
+--                , Border.rounded 2
+--                ]
+--                none
+--            )
+--        ]
+--        { onChange = ChangeColor
+--        , label = Input.labelAbove [] <| text <| "Цветовой регулятор ( " ++ String.fromFloat hue ++ " )"
+--        , min = 0
+--        , max = 255
+--        , step = 5
+--        , value = model.activecolor
+--        , thumb =
+--            Input.defaultThumb
+--        }
+--colorOptions : Model -> Element Msg
+--colorOptions model =
+--        Input.radioRow
+--            [ width fill
+--            , spacing 5
+--            ]
+--            { onChange = \new -> UpdateFocus { model | activecolor = new }
+--            , selected = Just model.color
+--            , label = Input.labelAbove [ padding 3 ] (el [ Font.size 10 ] <| text "Цвет")
+--            , options =
+--                let
+--                    option i x =
+--                        el
+--                            [ width <| px 30
+--                            , height <| px 25
+--                            , Border.widthEach { bottom = 3, left = 0, right = 0, top = 0 }
+--                            , Background.color model.activecolor
+--                            , Border.color <|
+--                                case x of
+--                                    Input.Idle ->
+--                                        white 0
+--                                    Input.Focused ->
+--                                        lightGrey 0.8
+--                                    Input.Selected ->
+--                                        darkGrey 1.0
+--                            ]
+--                        <|
+--                            text ""
+--                in
+--                List.range 0 9
+--                    |> List.map
+--                        (\code ->
+--                            Input.optionWith code (option code)
+--                        )
+--            }
 --decode : Decoder (Cred -> viewer) -> Value -> Result Decode.Error viewer
 --decode decoder value =
 --    -- It's stored in localStorage as a JSON String;
@@ -841,15 +886,6 @@ subscriptions model =
 --    Decode.decodeValue Decode.string value
 --        |> Result.andThen (\str -> Decode.decodeString (Decode.field "user" (decoderFromCred decoder)) str)
 -- Session.changes GotSession (Session.navKey model.session)
--- EXPORT
-
-
-toSession : Model -> Session
-toSession model =
-    model.session
-
-
-
 -- FORM
 
 

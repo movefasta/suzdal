@@ -1,4 +1,4 @@
-module Api.Endpoint exposing (Endpoint, add, config, configSet, connect, content, dagGet, dagPut, file, getContent, id, publish, request, resolve, task, unwrap)
+module Api.Endpoint exposing (Endpoint, add, config, configSet, connect, content, dagGet, dagPut, file, getContent, id, publish, request, resolve, swarmPeers, task, unwrap)
 
 import CommentId exposing (CommentId)
 import Http
@@ -77,26 +77,14 @@ content url path =
         |> Endpoint
 
 
-
---node : Route.Path -> Endpoint
---node path =
---    "http://localhost:5001/api/v0/dag/get?arg="
---        ++ path.cid
---        ++ "/"
---        ++ (String.join "/" <| List.map (\s -> "links/" ++ String.fromInt s) path.location)
---        |> Endpoint
---links : Route.Path -> Endpoint
---links path =
---    "http://localhost:5001/api/v0/dag/get?arg="
---        ++ path.cid
---        ++ "/links/"
---        ++ (String.join "/" <| List.map (\s -> String.fromInt s ++ "/links") path.location)
---        |> Endpoint
-
-
 config : Url -> Endpoint
 config url =
     urlBuilder (endpoint url) [ "config", "show" ] []
+
+
+swarmPeers : Url -> Endpoint
+swarmPeers url =
+    urlBuilder (endpoint url) [ "swarm", "peers" ] []
 
 
 configSet : Url -> String -> Encode.Value -> Endpoint
