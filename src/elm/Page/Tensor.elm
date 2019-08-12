@@ -733,7 +733,6 @@ viewDAG model dag =
             [ width fill
             , height fill
             , Background.color <| simpleColorCodeConverter node.color alpha
-            , htmlAttribute <| Html.Attributes.id <| Route.locationToString "/" node.location
             , Event.onClick <| ChangeFocus node
             ]
 
