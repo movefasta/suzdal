@@ -3,6 +3,7 @@ module Page.Settings exposing (Model, Msg, init, subscriptions, toSession, updat
 import Api exposing (Hash)
 import Api.Endpoint as Endpoint
 import Api.NodeConfig exposing (IpfsNodeConfig)
+import Api.RepoStat exposing (RepoStat)
 import Api.SwarmPeers exposing (SwarmPeers)
 import Avatar
 import Browser.Dom as Dom
@@ -18,6 +19,7 @@ import Element.Font as Font
 import Element.Input as Input
 import Element.Lazy as Lazy exposing (lazy)
 import Email exposing (Email)
+import Filesize
 import Html
 import Html.Attributes
 import Html.Events as HtmlEvents
@@ -46,10 +48,12 @@ init session =
       , shownodeprops = False
       , peers = []
       , swarm = Loading
+      , repo = Loading
       }
     , Cmd.batch
         [ Api.get (Endpoint.config <| Session.url session) GotConfig Api.NodeConfig.decoder
         , Api.get (Endpoint.id <| Session.url session) GotNodeID idDecoder
+        , Api.get (Endpoint.repoStat <| Session.url session) GotRepoStat Api.RepoStat.decoder
         , Process.sleep 100 |> Task.perform (always RetrieveLocalStoragePeers)
         ]
     )
@@ -93,6 +97,7 @@ type alias Model =
     , shownodeprops : Bool
     , peers : List Peer
     , swarm : Status SwarmPeers
+    , repo : Status RepoStat
 
     --, palette : Palette
     --, red : Float
@@ -211,6 +216,7 @@ type Msg
     | SavePeer Peer
     | RetrieveLocalStoragePeers
     | GotSwarmPeers (Result Http.Error SwarmPeers)
+    | GotRepoStat (Result Http.Error RepoStat)
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -373,6 +379,14 @@ update msg model =
                 Err _ ->
                     ( model, Cmd.none )
 
+        GotRepoStat result ->
+            case result of
+                Ok stat ->
+                    ( { model | repo = Loaded stat }, Cmd.none )
+
+                Err _ ->
+                    ( model, Cmd.none )
+
         CheckPeers peers ->
             ( { model | peers = List.map (\p -> { p | connection = Pending }) peers }
             , Cmd.batch <| List.map (\peer -> checkPeer peer.id peer.hash "" url) peers
@@ -490,32 +504,50 @@ view model =
             , htmlAttribute (Html.Attributes.style "flex-shrink" "1")
             , clip
             ]
-            [ viewPeers model.swarm model.peers
-            , column
-                [ width fill, spacing 15, alignTop ]
-                [ header "Идентификационные данные", viewID model.id ]
-            , case model.config of
-                Loaded config ->
-                    column
-                        [ width fill, height fill, spacing 15, scrollbarY ]
-                        [ header "Конфигурация"
-                        , maybeView viewSwarmConfig config.swarm
-                        , viewRawConfig config
-                        ]
-
-                Failed ->
-                    text "Fetching IPFS config failed"
-
-                _ ->
-                    Loading.icon "Загрузка конфигурации..."
+            [ column
+                [ width fill, height fill, scrollbarY, spacing 20 ]
+                [ viewPeers model.swarm model.peers
+                , viewRemote "Идентификационные данные" viewID model.id
+                , viewRemote "Статистика репозитория" viewRepoStat model.repo
+                ]
+            , viewRemote "Полная конфигурация" viewRawConfig model.config
             ]
     }
+
+
+viewRepoStat : RepoStat -> Element Msg
+viewRepoStat stat =
+    column
+        [ alignTop, width fill, height shrink, spacing 10 ]
+        [ viewIdProperty "Размер" (text <| Filesize.format <| Maybe.withDefault 0 stat.repoSize)
+        , viewIdProperty "Максимальный размер" (text <| Filesize.format <| Maybe.withDefault 0 stat.storageMax)
+        , viewIdProperty "Количество объектов" (text <| String.fromInt <| Maybe.withDefault 0 stat.numObjects)
+        , viewIdProperty "Путь в файловой системе" (text <| Maybe.withDefault "" stat.repoPath)
+        , viewIdProperty "Версия репозитория" (text <| Maybe.withDefault "" stat.version)
+        ]
+
+
+viewRemote : String -> (a -> Element Msg) -> Status a -> Element Msg
+viewRemote title viewfun remote =
+    column
+        [ width fill, height fill, spacing 15, alignTop ]
+        [ header title
+        , case remote of
+            Loaded a ->
+                viewfun a
+
+            Failed ->
+                text "Ошибка загрузки"
+
+            _ ->
+                text "Загрузка ..."
+        ]
 
 
 viewPeers : Status SwarmPeers -> List Peer -> Element Msg
 viewPeers response peers =
     column
-        [ width fill, spacing 15, alignTop ]
+        [ width fill, height fill, spacing 15, alignTop ]
         [ row
             [ spacing 10 ]
             [ header "Список избранных пиров"
@@ -527,7 +559,7 @@ viewPeers response peers =
                 [ Event.onClick <| CheckPeers peers, pointer, width <| px 22, height <| px 22 ]
               <|
                 html Icons.refreshCcw
-            , el [ Font.italic, Font.size 12, paddingXY 7 0 ] <|
+            , el [ Font.italic, paddingXY 7 0 ] <|
                 text <|
                     case response of
                         Loaded swarm ->
@@ -685,21 +717,22 @@ viewPeerProperties peer =
 
 viewRawConfig : IpfsNodeConfig -> Element Msg
 viewRawConfig config =
-    Input.multiline
-        [ alignTop, width fill, height fill ]
-        { onChange = \_ -> NoOp
-        , text = Api.NodeConfig.encoder config
-        , placeholder = Nothing
-        , label = Input.labelHidden "IPFS config show"
-        , spellcheck = False
-        }
+    el [ width fill, height fill, scrollbarY ] <|
+        Input.multiline
+            [ alignTop, width fill, height fill, scrollbarY ]
+            { onChange = \_ -> NoOp
+            , text = Api.NodeConfig.encoder config
+            , placeholder = Nothing
+            , label = Input.labelHidden "IPFS config show"
+            , spellcheck = False
+            }
 
 
 viewIdProperty : String -> Element Msg -> Element Msg
 viewIdProperty name value =
     row
         [ spacing 10 ]
-        [ el [ Font.color <| Colors.darkGrey 1.0, Font.size 11 ] <| text name
+        [ el [ Font.color <| Colors.darkGrey 1.0 ] <| text name
         , el [ padding 8, Background.color <| Colors.lightGrey 0.5, width fill ] value
         ]
 
@@ -736,32 +769,21 @@ viewFlag name value =
             none
 
 
-viewID : Status IpfsNodeID -> Element Msg
-viewID status =
-    case status of
-        Loading ->
-            text "Загрузка идентификационной информации узла..."
+viewID : IpfsNodeID -> Element Msg
+viewID id =
+    column
+        [ alignTop, width fill, spacing 10 ]
+        [ viewIdProperty "Идентификатор узла" (text id.id)
+        , viewIdProperty "Адреса" <|
+            case id.addresses of
+                Just addresses ->
+                    column [ spacing 3 ] <| List.map text addresses
 
-        LoadingSlowly ->
-            text "Загрузка медленная ..."
-
-        Loaded id ->
-            column
-                [ alignTop, width fill, height shrink, spacing 10 ]
-                [ viewIdProperty "Идентификатор узла" (text id.id)
-                , viewIdProperty "Адреса" <|
-                    case id.addresses of
-                        Just addresses ->
-                            column [ Font.size 10, spacing 3 ] <| List.map text addresses
-
-                        Nothing ->
-                            text "У Вас нет адресов. Возможно, Вы работаете в оффлайн режиме"
-                , viewIdProperty "Версия клиента" (text id.agentVersion)
-                , viewIdProperty "Версия протокола" (text id.protocolVersion)
-                ]
-
-        Failed ->
-            text "Ошибка запроса идентификационной информации узла"
+                Nothing ->
+                    text "У Вас нет адресов. Возможно, Вы работаете в оффлайн режиме"
+        , viewIdProperty "Версия клиента" (text id.agentVersion)
+        , viewIdProperty "Версия протокола" (text id.protocolVersion)
+        ]
 
 
 checkPeer : Int -> String -> String -> Url -> Cmd Msg
