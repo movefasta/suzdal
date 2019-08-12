@@ -5,7 +5,9 @@
   "main": "index.js",
   "author": "Igor Brylyov",
   "license": "MIT",
-  "dependencies": {},
+  "dependencies": {
+    "lodash": "^4.17.15"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/movefasta/suzdal.git"
