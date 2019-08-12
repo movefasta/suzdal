@@ -780,6 +780,7 @@ viewDAG model dag =
             , spacing 15
             , alignTop
             , height fill
+            , scrollbarY
             ]
             [ getContexts dag []
                 |> List.map
