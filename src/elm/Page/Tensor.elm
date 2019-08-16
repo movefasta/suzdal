@@ -69,6 +69,7 @@ subscriptions model =
 
 
 
+
 -- INIT
 
 
@@ -93,7 +94,7 @@ init session path =
       , shownodeprops = False
       , color = 0
       , settings = Nothing
-
+        --test
       --, style = Animation.style [ Animation.opacity 0.0 ]
       }
     , Cmd.batch
@@ -279,7 +280,7 @@ type Msg
 
 
 
---| Animate Animation.Msg
+-- Animate Animation.Msg
 
 
 type alias Styles =
@@ -785,9 +786,11 @@ viewDAG model dag =
                 |> List.map
                     (row [ width fill, height fill, spacing 5 ] << List.map isCrumb)
                 |> column [ width fill, spacing 5 ]
-            , row
-                [ centerX, spacing 10 ]
-                [ button False Icons.plusCircle <| Append dag
+            , viewNodeProps model.path.cid model.color focus model.shownodeprops
+            ]
+        , column
+                [ alignTop, spacing 10 ]
+                [ button (not <| haveParent dag) Icons.trash2 <| RemoveFocus dag
                 , button
                     False
                     (if model.shownodeprops then
@@ -797,12 +800,9 @@ viewDAG model dag =
                         Icons.eye
                     )
                     InvertShowNodeProps
-                , button (not <| haveParent dag) Icons.trash2 <| RemoveFocus dag
+                , saveButton model.changes dag
+                , button False Icons.plusCircle <| Append dag
                 ]
-
-            --, hslSlider model.color
-            , viewNodeProps model.path.cid model.color focus model.shownodeprops
-            ]
         , column
             [ width fill
             , height fill
@@ -1386,12 +1386,6 @@ viewControls changes zipper root =
                     ]
                   <|
                     text string
-                , case zipper of
-                    Success z ->
-                        saveButton changes z
-
-                    _ ->
-                        none
                 ]
 
             ( _, _ ) ->
