@@ -40,6 +40,10 @@ import Username as Username exposing (Username)
 
 init : Session -> ( Model, Cmd Msg )
 init session =
+    let
+        host =
+            Session.url session
+    in
     ( { session = session
       , problems = []
       , status = Loading
@@ -51,9 +55,10 @@ init session =
       , repo = Loading
       }
     , Cmd.batch
-        [ Api.get (Endpoint.config <| Session.url session) GotConfig Api.NodeConfig.decoder
-        , Api.get (Endpoint.id <| Session.url session) GotNodeID idDecoder
-        , Api.get (Endpoint.repoStat <| Session.url session) GotRepoStat Api.RepoStat.decoder
+        [ Api.get (Endpoint.config host) GotConfig Api.NodeConfig.decoder
+        , Api.get (Endpoint.id host) GotNodeID idDecoder
+        , Api.get (Endpoint.repoStat host) GotRepoStat Api.RepoStat.decoder
+        , Api.get (Endpoint.swarmPeers host) GotSwarmPeers Api.SwarmPeers.decoder
         , Process.sleep 100 |> Task.perform (always RetrieveLocalStoragePeers)
         ]
     )
@@ -138,10 +143,15 @@ type alias Form =
 
 
 type Connection
-    = Online
+    = Online SwarmStatus
     | Offline
     | Pending
     | NotAsked
+
+
+type SwarmStatus
+    = InSwarm
+    | OutOfSwarm
 
 
 type alias Profile =
@@ -207,7 +217,7 @@ type Msg
     | Published (Result Http.Error String)
     | GotPeerStatus Int (Result Http.Error String)
     | GotPeers (Result Decode.Error (List Peer))
-    | Hover Int Bool
+    | Hover Peer Bool
     | AddPeer
     | UpdatePeer Peer
     | DeletePeer Int
@@ -217,6 +227,7 @@ type Msg
     | RetrieveLocalStoragePeers
     | GotSwarmPeers (Result Http.Error SwarmPeers)
     | GotRepoStat (Result Http.Error RepoStat)
+    | UpdatePeersConnections
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -232,46 +243,16 @@ update msg model =
         RetrieveLocalStoragePeers ->
             ( model, Api.retrieveObject "peers" )
 
-        Hover id bool ->
-            let
-                hover peer =
-                    if peer.id == id then
-                        { peer | hover = bool }
-
-                    else
-                        peer
-
-                newpeers =
-                    List.map hover model.peers
-            in
-            ( { model | peers = newpeers }, Cmd.none )
+        Hover peer bool ->
+            ( { model | peers = updateIf (\p -> p.id == peer.id) (\p -> { p | hover = bool }) model.peers }, Cmd.none )
 
         UpdatePeer updatedpeer ->
-            let
-                toggle peer =
-                    if peer.id == updatedpeer.id then
-                        updatedpeer
-
-                    else
-                        peer
-
-                newpeers =
-                    List.map toggle model.peers
-            in
-            ( { model | peers = newpeers }, Cmd.none )
+            ( { model | peers = updateIf (\p -> p.id == updatedpeer.id) (always updatedpeer) model.peers }, Cmd.none )
 
         SavePeer peertosave ->
             let
                 newpeers =
-                    List.map
-                        (\peer ->
-                            if peer.id == peertosave.id then
-                                peertosave
-
-                            else
-                                peer
-                        )
-                        model.peers
+                    updateIf (\p -> p.id == peertosave.id) (always peertosave) model.peers
             in
             ( { model | peers = newpeers }
             , Cmd.batch [ checkPeer peertosave.id peertosave.hash "" url, Api.storePeers (encodePeers newpeers) ]
@@ -292,15 +273,7 @@ update msg model =
                     List.length model.peers + 1
 
                 newpeers =
-                    { id = id
-                    , hash = ""
-                    , isRelay = False
-                    , connection = NotAsked
-                    , hover = False
-                    , name = "Анонимный будетлянин №" ++ String.fromInt id
-                    , editing = True
-                    }
-                        :: model.peers
+                    anonymous id :: model.peers
             in
             ( { model | peers = newpeers }, Cmd.none )
 
@@ -315,17 +288,15 @@ update msg model =
             in
             case result of
                 Ok str ->
-                    ( { model | peers = List.map (set Online) model.peers }, Cmd.none )
+                    ( { model | peers = List.map (set (Online OutOfSwarm)) model.peers }, Cmd.none )
 
                 Err problem ->
                     ( { model | peers = List.map (set Offline) model.peers }, Cmd.none )
 
         PublishPeers peers ->
-            ( model
-            , Cmd.none
-              --, Api.task "POST" (Endpoint.dagPut url) value Api.cidDecoder Api.get (Endpoint.publish url) Published <| Decode.field "Value" Decode.string
-            )
+            ( model, Cmd.none )
 
+        --, Api.task "POST" (Endpoint.dagPut url) value Api.cidDecoder Api.get (Endpoint.publish url) Published <| Decode.field "Value" Decode.string
         Published result ->
             case result of
                 Ok string ->
@@ -337,12 +308,7 @@ update msg model =
         GotNodeID result ->
             case result of
                 Ok data ->
-                    ( { model | id = Loaded data }
-                    , Cmd.none
-                      --Api.task "GET" (Endpoint.resolve url data.id) Http.emptyBody (Decode.field "Path" Decode.string)
-                      --    |> Task.andThen (\str -> Api.task "GET" (Endpoint.dagGet url str) Http.emptyBody decodePeers)
-                      --    |> Task.attempt GotPeers
-                    )
+                    ( { model | id = Loaded data }, Cmd.none )
 
                 Err problems ->
                     ( { model | id = Failed }, Cmd.none )
@@ -350,31 +316,23 @@ update msg model =
         GotPeers result ->
             case result of
                 Ok peers ->
-                    ( { model | peers = peers }
-                    , Api.get (Endpoint.swarmPeers <| Session.url model.session) GotSwarmPeers Api.SwarmPeers.decoder
-                    )
+                    update UpdatePeersConnections { model | peers = peers }
 
                 Err _ ->
+                    ( model, Cmd.none )
+
+        UpdatePeersConnections ->
+            case model.swarm of
+                Loaded swarm ->
+                    ( { model | peers = List.map (updateConnection swarm) model.peers }, Cmd.none )
+
+                _ ->
                     ( model, Cmd.none )
 
         GotSwarmPeers result ->
             case result of
                 Ok swarm ->
-                    ( { model
-                        | swarm = Loaded swarm
-                        , peers =
-                            List.map
-                                (\peer ->
-                                    if Api.SwarmPeers.inSwarm peer.hash swarm then
-                                        { peer | connection = Online }
-
-                                    else
-                                        peer
-                                )
-                                model.peers
-                      }
-                    , Cmd.none
-                    )
+                    update UpdatePeersConnections { model | swarm = Loaded swarm }
 
                 Err _ ->
                     ( model, Cmd.none )
@@ -507,8 +465,8 @@ view model =
             [ column
                 [ width fill, height fill, scrollbarY, spacing 20 ]
                 [ viewPeers model.swarm model.peers
-                , viewRemote "Идентификационные данные" viewID model.id
                 , viewRemote "Статистика репозитория" viewRepoStat model.repo
+                , viewRemote "Идентификационные данные" viewID model.id
                 ]
             , viewRemote "Полная конфигурация" viewRawConfig model.config
             ]
@@ -580,8 +538,13 @@ viewPeer peer =
     let
         ( color, status ) =
             case peer.connection of
-                Online ->
-                    ( Colors.green, "В сети" )
+                Online swarmstatus ->
+                    case swarmstatus of
+                        InSwarm ->
+                            ( Colors.green, "В сети, в рое" )
+
+                        OutOfSwarm ->
+                            ( Colors.green, "В сети, вне роя" )
 
                 Offline ->
                     ( Colors.orange, "Недоступен" )
@@ -604,8 +567,8 @@ viewPeer peer =
         [ width fill
         , paddingXY 8 12
         , spacing 5
-        , Event.onMouseEnter <| Hover peer.id True
-        , Event.onMouseLeave <| Hover peer.id False
+        , Event.onMouseEnter <| Hover peer True
+        , Event.onMouseLeave <| Hover peer False
         , if peer.editing then
             shadow
 
@@ -793,6 +756,31 @@ checkPeer id hash relay url =
 
 
 -- HELPERS
+
+
+updateIf : (Peer -> Bool) -> (Peer -> Peer) -> List Peer -> List Peer
+updateIf predicate updatefun list =
+    List.map
+        (\peer ->
+            if predicate peer then
+                updatefun peer
+
+            else
+                peer
+        )
+        list
+
+
+anonymous : Int -> Peer
+anonymous id =
+    { id = id
+    , hash = ""
+    , isRelay = False
+    , connection = NotAsked
+    , hover = False
+    , name = "Анонимный будетлянин №" ++ String.fromInt id
+    , editing = True
+    }
 
 
 maybeView : (a -> Element Msg) -> Maybe a -> Element Msg
@@ -1054,6 +1042,15 @@ formDecoder =
         |> required "email" Decode.string
         |> required "username" Decode.string
         |> hardcoded ""
+
+
+updateConnection : SwarmPeers -> Peer -> Peer
+updateConnection swarm peer =
+    if Api.SwarmPeers.inSwarm peer.hash swarm then
+        { peer | connection = Online InSwarm }
+
+    else
+        { peer | connection = Online OutOfSwarm }
 
 
 
