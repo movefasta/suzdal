@@ -1,4 +1,4 @@
-module Api.Endpoint exposing (Endpoint, add, config, configSet, connect, content, dagGet, dagPut, file, getContent, id, publish, repoStat, request, resolve, swarmPeers, task, unwrap)
+module Api.Endpoint exposing (Endpoint, add, config, configSet, connect, content, dagGet, dagPut, file, getContent, id, pinAdd, publish, repoStat, request, resolve, swarmPeers, task, unwrap)
 
 import CommentId exposing (CommentId)
 import Http
@@ -95,6 +95,11 @@ configSet url key value =
 id : Url -> Endpoint
 id url =
     urlBuilder (endpoint url) [ "id" ] []
+
+
+pinAdd : Url -> String -> Endpoint
+pinAdd url hash =
+    urlBuilder (endpoint url) [ "pin", "add" ] [ Url.Builder.string "arg" hash, Url.Builder.string "recursive" "true" ]
 
 
 add : Url -> Endpoint

@@ -69,7 +69,6 @@ subscriptions model =
 
 
 
-
 -- INIT
 
 
@@ -83,7 +82,7 @@ init session path =
             Session.url session
     in
     ( { session = session
-      , problems = []
+      , notifications = []
       , root = Success ( Completed, path.cid )
       , zipper = Loading
       , path = path
@@ -94,7 +93,8 @@ init session path =
       , shownodeprops = False
       , color = 0
       , settings = Nothing
-        --test
+
+      --test
       --, style = Animation.style [ Animation.opacity 0.0 ]
       }
     , Cmd.batch
@@ -113,20 +113,15 @@ init session path =
 -- MODEL
 
 
-type Problem
-    = InvalidEntry ValidatedField String
-    | ServerError String
-
-
-type ValidatedField
-    = Email
-    | Password
+type Notification
+    = ServerError String
+    | PinAdd String
 
 
 type alias Model =
     { session : Session
     , settings : Maybe Settings.Model
-    , problems : List Problem
+    , notifications : List Notification
     , root : Remote ( Status, Hash )
     , zipper : Remote DAG
     , path : Path
@@ -266,7 +261,7 @@ type Msg
     | DragLeave
     | GotSession Session.Session
     | AddTree (List Int) (Result Http.Error (Tree Node))
-    | ClearProblemLog
+    | ClearNotifications
     | AddBookmark Path String
     | AddLogEntry Entry
     | GotDAG (Result Http.Error DAG)
@@ -277,6 +272,8 @@ type Msg
     | KeyDowns String (Remote DAG)
     | PassedSlowLoadThreshold
     | ChangeColor Float
+    | RecursivePin Node
+    | PinAddResponse Hash (Result Http.Error (List String))
 
 
 
@@ -318,7 +315,7 @@ update msg model =
                     )
 
                 Err _ ->
-                    ( { model | problems = [ ServerError "Ошибка загрузки классификатора" ] }, Cmd.none )
+                    ( { model | notifications = [ ServerError "Ошибка загрузки классификатора" ] }, Cmd.none )
 
         ChangeColor hue ->
             ( { model | color = hue }, Cmd.none )
@@ -359,7 +356,7 @@ update msg model =
                     )
 
                 Nothing ->
-                    ( { model | problems = [ ServerError "Нечего больше удалять! (RemoveFocus Msg)" ] }, Cmd.none )
+                    ( { model | notifications = [ ServerError "Нечего больше удалять! (RemoveFocus Msg)" ] }, Cmd.none )
 
         UpdateParent parent result ->
             case result of
@@ -372,7 +369,7 @@ update msg model =
                     )
 
                 Err _ ->
-                    ( { model | problems = [ ServerError "Ошибка при обновлении поля links у родителя (UpdateParent Msg)" ] }, Cmd.none )
+                    ( { model | notifications = [ ServerError "Ошибка при обновлении поля links у родителя (UpdateParent Msg)" ] }, Cmd.none )
 
         Append zipper ->
             let
@@ -392,7 +389,7 @@ update msg model =
             )
 
         AddBookmark path string ->
-            ( { model | problems = [] }, Cmd.none )
+            ( { model | notifications = [] }, Cmd.none )
 
         ChangeFocus node ->
             let
@@ -439,8 +436,8 @@ update msg model =
                     ]
                 )
 
-        ClearProblemLog ->
-            ( { model | problems = [] }, Cmd.none )
+        ClearNotifications ->
+            ( { model | notifications = [] }, Cmd.none )
 
         -- just update zipper without any other actions
         AddTree location result ->
@@ -455,7 +452,16 @@ update msg model =
                     ( { model | zipper = updateRemote replace model.zipper }, Cmd.none )
 
                 Err _ ->
-                    ( { model | problems = [ ServerError "Не удалось загрузить дерево. Попробуйте ещё раз" ] }, Cmd.none )
+                    ( { model | notifications = [ ServerError "Не удалось загрузить дерево. Попробуйте ещё раз" ] }, Cmd.none )
+
+        RecursivePin node ->
+            ( model, Api.get (Endpoint.pinAdd url node.links) (PinAddResponse node.links) (Decode.field "Pins" (Decode.list Decode.string)) )
+
+        PinAddResponse hash (Ok _) ->
+            ( { model | notifications = [ PinAdd ("Успешно сохранён " ++ hash) ] }, Cmd.none )
+
+        PinAddResponse hash (Err _) ->
+            ( { model | notifications = [ ServerError ("Не удалось сохранить " ++ hash) ] }, Cmd.none )
 
         NoOp ->
             ( model, Cmd.none )
@@ -505,7 +511,7 @@ update msg model =
                        )
 
                    Err _ ->
-                       ( { model | problems = [ ServerError "Ошибка загрузки файлов (UpdateContent Msg)" ] }, Cmd.none )
+                       ( { model | notifications = [ ServerError "Ошибка загрузки файлов (UpdateContent Msg)" ] }, Cmd.none )
         -}
         GetContentHash node result ->
             case result of
@@ -528,7 +534,7 @@ update msg model =
                     )
 
                 Err _ ->
-                    ( { model | problems = [ ServerError "Ошибка запроса хэша файлов (GetContentHash Msg)" ] }, Cmd.none )
+                    ( { model | notifications = [ ServerError "Ошибка запроса хэша файлов (GetContentHash Msg)" ] }, Cmd.none )
 
         UpdateQuery hash ->
             ( { model | root = Success ( Editing, hash ) }, Cmd.none )
@@ -554,7 +560,7 @@ update msg model =
                     )
 
                 Err _ ->
-                    ( { model | root = model.root, problems = [ ServerError "Ошибка запроса корневого хэша (GetRootHash Msg)" ] }
+                    ( { model | root = model.root, notifications = [ ServerError "Ошибка запроса корневого хэша (GetRootHash Msg)" ] }
                     , Cmd.none
                     )
 
@@ -570,7 +576,7 @@ update msg model =
                     )
 
                 Err _ ->
-                    ( { model | problems = [ ServerError <| "Ошибка запроса файлов (GetNodeContent Msg) по адресу " ++ hash ] }, Cmd.none )
+                    ( { model | notifications = [ ServerError <| "Ошибка запроса файлов (GetNodeContent Msg) по адресу " ++ hash ] }, Cmd.none )
 
         AddLogEntry entry ->
             ( { model
@@ -700,7 +706,7 @@ view model =
     --       Animation.render model.style
     --           |> List.map htmlAttribute
     --in
-    { title = "Suzdal v0.1 test"
+    { title = "Suzdal Ontology Framework"
     , content =
         case model.root of
             Success _ ->
@@ -709,7 +715,7 @@ view model =
                     , width fill
                     , height fill
                     ]
-                    [ viewProblems model.problems
+                    [ viewNotifications model.notifications
                     , viewRemote (spinner "Загрузка корневого хэша репозитория") (viewControls model.changes model.zipper) model.root
                     , viewRemote (spinner "Загрузка дерева репозитория") (viewDAG model) model.zipper
                     , row
@@ -789,20 +795,21 @@ viewDAG model dag =
             , viewNodeProps model.path.cid model.color focus model.shownodeprops
             ]
         , column
-                [ alignTop, spacing 10 ]
-                [ button (not <| haveParent dag) Icons.trash2 <| RemoveFocus dag
-                , button
-                    False
-                    (if model.shownodeprops then
-                        Icons.eyeOff
+            [ alignTop, spacing 10 ]
+            [ button (not <| haveParent dag) Icons.trash2 <| RemoveFocus dag
+            , button
+                False
+                (if model.shownodeprops then
+                    Icons.eyeOff
 
-                     else
-                        Icons.eye
-                    )
-                    InvertShowNodeProps
-                , saveButton model.changes dag
-                , button False Icons.plusCircle <| Append dag
-                ]
+                 else
+                    Icons.eye
+                )
+                InvertShowNodeProps
+            , saveButton model.changes dag
+            , button False Icons.download <| RecursivePin (Zipper.label dag)
+            , button False Icons.plusCircle <| Append dag
+            ]
         , column
             [ width fill
             , height fill
@@ -1492,42 +1499,44 @@ viewSector path tree =
         ]
 
 
-viewProblems : List Problem -> Element Msg
-viewProblems problems =
+viewNotifications : List Notification -> Element Msg
+viewNotifications notifications =
     let
-        style =
+        style color =
             [ width fill
-            , padding 5
-            , Background.color <| orange 1.0
+            , paddingXY 10 8
+            , Font.size 14
+            , Background.color <| color 0.7
+            , Border.width 1
+            , Border.color <| color 1.0
+            , Border.rounded 5
             ]
 
-        render problem =
-            case problem of
-                InvalidEntry _ str ->
-                    el style <| text str
-
+        render notification =
+            case notification of
                 ServerError str ->
-                    el style <| text str
+                    row (style orange) [ text str, clearNotificationsButton ]
+
+                PinAdd str ->
+                    row (style green) [ text str, clearNotificationsButton ]
     in
-    case problems of
+    case notifications of
         [] ->
             none
 
         _ ->
-            row style
-                [ column [] <| List.map render problems
-                , Input.button
-                    [ alignRight
-                    , height fill
-                    , Border.width 1
-                    , Border.rounded 3
-                    , Border.color <| black 1.0
-                    , Background.color <| lightGrey 1.0
-                    ]
-                    { onPress = Just ClearProblemLog
-                    , label = el [ padding 3, Font.bold ] <| text "OK"
-                    }
-                ]
+            column [ width fill, padding 10 ] <| List.map render notifications
+
+
+clearNotificationsButton : Element Msg
+clearNotificationsButton =
+    Input.button
+        [ alignRight
+        , height fill
+        ]
+        { onPress = Just ClearNotifications
+        , label = el [ padding 3, Font.bold ] <| text "OK"
+        }
 
 
 
@@ -1705,8 +1714,12 @@ createLogEntry path field old new =
         diff =
             { path = path.location, field = field, old = old, new = new }
     in
-    Task.map2 (\time zone -> { time = time, zone = zone, diff = diff }) Time.now Time.here
-        |> Task.perform AddLogEntry
+    if new /= old then
+        Task.map2 (\time zone -> { time = time, zone = zone, diff = diff }) Time.now Time.here
+            |> Task.perform AddLogEntry
+
+    else
+        Cmd.none
 
 
 fetchZipper : Url -> List Path -> DAG -> Task Http.Error DAG
