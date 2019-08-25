@@ -43,6 +43,7 @@ import Time
 import Timestamp
 import Tree exposing (Tree)
 import Tree.Zipper as Zipper exposing (Zipper)
+import UI exposing (button)
 import Url exposing (Url)
 
 
@@ -94,7 +95,6 @@ init session path =
       , color = 0
       , settings = Nothing
 
-      --test
       --, style = Animation.style [ Animation.opacity 0.0 ]
       }
     , Cmd.batch
@@ -740,7 +740,6 @@ viewDAG model dag =
             [ width fill
             , height fill
             , Background.color <| simpleColorCodeConverter node.color alpha
-            , Event.onClick <| ChangeFocus node
             ]
 
         style node =
@@ -845,7 +844,7 @@ line =
 viewContentEditor : Node -> Content -> Element Msg
 viewContentEditor node content =
     row
-        [ alignRight ]
+        [ alignRight, alignBottom ]
         [ button False Icons.fileText (AddText content)
         , button False Icons.filePlus (Pick node content)
 
@@ -860,7 +859,7 @@ viewFocusTitle node =
     paragraph
         [ Font.size 24
         , width fill
-        , centerY
+        , paddingEach { edges | bottom = 5 }
         ]
         [ text node.description ]
 
@@ -1050,24 +1049,6 @@ viewNodeProps root hue node show =
             , label = el [ Font.size 10 ] <| text "Абсолютная ссылка на ячейку"
             }
         ]
-
-
-button : Bool -> Html.Html Msg -> Msg -> Element Msg
-button disabled icon msg =
-    Input.button
-        [ padding 5
-        , mouseOver <| [ Background.color <| lightGrey 1.0 ]
-        , alignLeft
-        , Border.rounded 5
-        ]
-        { onPress =
-            if not disabled then
-                Just msg
-
-            else
-                Nothing
-        , label = html <| icon
-        }
 
 
 spinner : String -> Element Msg
