@@ -1,4 +1,4 @@
-module Api.Endpoint exposing (Endpoint, add, config, configSet, connect, content, dagGet, dagPut, file, getContent, id, pinAdd, publish, repoStat, request, resolve, swarmPeers, task, unwrap)
+module Api.Endpoint exposing (Endpoint, add, config, configSet, connect, content, dagGet, dagPut, file, getContent, id, pinAdd, pinLs, publish, repoStat, request, resolve, swarmPeers, task, unwrap)
 
 import CommentId exposing (CommentId)
 import Http
@@ -112,7 +112,15 @@ repoStat url =
     urlBuilder (endpoint url) [ "repo", "stat" ] []
 
 
+pinLs : Url -> String -> Endpoint
+pinLs url hash =
+    urlBuilder (endpoint url) [ "pin", "ls" ] [ Url.Builder.string "arg" hash ]
 
+
+
+-- pin ls with arg SUCCESS - {"Keys":{"bafyreic54hfxtkjfuasmc2d3ktmhylkkvsiumprzsuzznhw7xqkyekpru4":{"Type":"recursive"}}}
+-- pin ls with arg NOT FOUND - {"Message":"merkledag: not found","Code":0,"Type":"error"}
+-- pin ls with arg INVALID PATH - {"Message":"invalid path \"bafyreic54hfxtkjfuasmc2d3ktmhylkkvsiumprzsuzznhw7xqkyekpru\": multihash length inconsistent: \u0026{18 sha2-256 32 [93 ... 241]}","Code":0,"Type":"error"}
 -- TYPES
 
 
