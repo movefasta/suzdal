@@ -22,22 +22,20 @@ const storage = window.localStorage || {
 function initLocalStoragePort(elmApp) {
   elmApp.ports.storeObject.subscribe(function ([key, state]) {
     storeObject(key, state);
-    elmApp.ports.objectRetrieved.send([key, state]);
+    console.log("Stored Object: ", state);
   });
   elmApp.ports.retrieveObject.subscribe(function (key) {
     const o = retrieveObject(key);
     elmApp.ports.objectRetrieved.send([key, o]);
+    console.log("Retrieve Object with key: ", [key, o]);
   });
 };
 
 function storeObject(key, object) {
   storage.setItem(key, JSON.stringify(object));
-  console.log("Stored Object: ", object);
 };
 
 function retrieveObject(key) {
-  console.log("Retrieve by Key: ", key);
   const value = storage.getItem(key);
   return value ? JSON.parse(value) : null;
-  console.log("Retrieve Object: ", value);
 };
