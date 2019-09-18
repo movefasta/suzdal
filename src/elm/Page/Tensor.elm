@@ -43,7 +43,7 @@ import Time
 import Timestamp
 import Tree exposing (Tree)
 import Tree.Zipper as Zipper exposing (Zipper)
-import UI exposing (button)
+import UI.Button exposing (button)
 import Url exposing (Url)
 
 
@@ -103,7 +103,6 @@ init session path =
             |> Task.andThen (\tree -> Task.succeed <| Zipper.fromTree <| expandFocus tree)
             |> Task.andThen (fetchZipper url <| pathlist path)
             |> Task.attempt GotDAG
-        , Api.storePath path
         , Task.perform (\_ -> PassedSlowLoadThreshold) Loading.slowThreshold
         ]
     )
@@ -393,7 +392,7 @@ update msg model =
 
         ChangeFocus node ->
             let
-                ( notHaveChildren, newZipper ) =
+                ( haveNoChildren, newZipper ) =
                     case model.zipper of
                         Success zipper ->
                             ( List.isEmpty <| Zipper.children <| setFocus node.location zipper
@@ -427,7 +426,7 @@ update msg model =
                 , Cmd.batch
                     [ Api.get (Endpoint.dagGet url node.cid) (GetNodeContent node.cid) contentDecoder
                     , Api.storePath newPath
-                    , if notHaveChildren then
+                    , if haveNoChildren then
                         getChildren url newPath.cid { node | expanded = True }
                             |> Task.attempt (AddTree node.location)
 
@@ -932,11 +931,12 @@ viewCell path node =
             Input.multiline
                 [ height fill
                 , width fill
-                , htmlAttribute <| Html.Attributes.id <| Route.locationToString "/" node.location
                 , Event.onLoseFocus <| UpdateFocus { node | status = Selected }
                 , Font.center
                 , centerX
                 , centerY
+                , htmlAttribute <| Html.Attributes.style "text-align" "inherit"
+                , htmlAttribute <| Html.Attributes.id <| Route.locationToString "/" node.location
                 ]
                 { onChange = \new -> UpdateFocus { node | description = new }
                 , text = node.description
