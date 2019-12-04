@@ -1,39 +1,22 @@
-module Route exposing (Path, Route(..), fromUrl, href, locationToString, pathToUrl, replaceUrl, routeToString)
+module Route exposing (Path, Route(..), fromUrl, locationToString, pathToUrl, replaceUrl, routeToString)
 
 import Browser.Navigation as Nav
-import Html exposing (Attribute)
+import Html exposing (Attribute, Html)
 import Html.Attributes as Attr
 import Url exposing (Url)
 import Url.Parser as Parser exposing ((</>), Parser, oneOf, s, string)
 import Username exposing (Username)
 
 
-
--- МАРШРУТИЗАТОР
--- общий путь - этап/строение/уровень/тензор/сектор/строка/клетка
--- кругозор состоит из 6 этапов
--- этап (phase) состоит из 1-6 строений
--- строение (structure) состоит из 6 уровней
--- уровень (level) состоит из 1, 2, 3, 4, 6 таблиц
--- тензор (tensor) состоит из 8 или 12 секторов
--- сектор (sector) состоит из 1-7 строк
--- строка (row) состоит из 2-7 клеток (cell)
--- центральная клетка сектора ссылается на другой сектор
--- ROUTING
-
-
 type Route
     = Home
-    | Tensor Path
     | Settings
-
-
-type alias Cid =
-    String
+    | Repo String
+    | Welcome
 
 
 type alias Path =
-    { cid : Cid
+    { cid : String
     , location : List Int
     }
 
@@ -57,44 +40,25 @@ locationToString separator ints =
 -- PUBLIC HELPERS
 
 
-href : Route -> Attribute msg
-href targetRoute =
-    Attr.href (routeToString targetRoute)
-
-
 replaceUrl : Nav.Key -> Route -> Cmd msg
 replaceUrl key route =
     Nav.replaceUrl key (routeToString route)
 
 
+parser : Parser (Route -> a) a
+parser =
+    oneOf
+        [ Parser.map Home (s "home")
+        , Parser.map Settings (s "settings")
+        , Parser.map Repo (s "repo" </> string)
+        , Parser.map Welcome (s "welcome")
+        ]
+
+
 fromUrl : Url -> Maybe Route
 fromUrl url =
-    let
-        u =
-            { url | path = Maybe.withDefault "" url.fragment, fragment = Nothing }
-
-        pathlist =
-            preparePath u.path
-
-        location =
-            List.tail pathlist
-                |> Maybe.withDefault []
-                |> List.map (Maybe.withDefault 99 << String.toInt)
-    in
-    case List.head pathlist of
-        Just str ->
-            case str of
-                "home" ->
-                    Just Home
-
-                "settings" ->
-                    Just Settings
-
-                _ ->
-                    Just <| Tensor { cid = str, location = location }
-
-        Nothing ->
-            Nothing
+    { url | path = Maybe.withDefault "" url.fragment, fragment = Nothing }
+        |> Parser.parse parser
 
 
 
@@ -136,10 +100,47 @@ routeToString route =
                 Home ->
                     [ "home" ]
 
-                Tensor path ->
-                    [ path.cid ] ++ List.map String.fromInt path.location
-
                 Settings ->
                     [ "settings" ]
+
+                Repo key ->
+                    [ "repo", key ]
+
+                Welcome ->
+                    [ "welcome" ]
     in
     "#/" ++ String.join "/" pieces
+
+
+
+{-
+   ex_fromUrl : Url -> Maybe Route
+   ex_fromUrl url =
+       let
+           u =
+               { url | path = Maybe.withDefault "" url.fragment, fragment = Nothing }
+
+           pathlist =
+               preparePath u.path
+
+           location =
+               List.tail pathlist
+                   |> Maybe.withDefault []
+                   |> List.map (Maybe.withDefault 99 << String.toInt)
+       in
+       case List.head pathlist of
+           Just str ->
+               case str of
+                   "home" ->
+                       Just Home
+
+                   "settings" ->
+                       Just Settings
+
+                   _ ->
+                       Just <| Repo { cid = str, location = location }
+
+           Nothing ->
+               Nothing
+
+-}

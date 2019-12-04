@@ -4,6 +4,7 @@ import Api exposing (Hash)
 import Avatar exposing (Avatar)
 import Browser exposing (Document)
 import Browser.Navigation as Nav
+import Dict
 import Element as E exposing (..)
 import Element.Background as Background
 import Element.Border as Border
@@ -13,52 +14,64 @@ import Element.Input as Input
 import Element.Lazy exposing (lazy, lazy2)
 import Html exposing (Html)
 import Http
-import Icons
 import Json.Decode as Decode exposing (Value)
 import Json.Encode as Encode
+import Loading
 import Page exposing (Page)
 import Page.Blank as Blank
 import Page.Home as Home
 import Page.NotFound as NotFound
+import Page.Repo as Repo
 import Page.Settings as Settings
-import Page.Tensor as Tensor
+import Page.Welcome as Welcome
+import Repo exposing (Repo)
 import Result exposing (Result)
 import Route exposing (Route)
 import Session exposing (Session)
-import Task
 import Time
+import UI.Layout as Layout
 import Url exposing (Url)
 import Username exposing (Username)
 
 
-type Model
-    = Redirect Session
-    | NotFound Session
-    | Home Home.Model
+type alias Model =
+    { key : Nav.Key
+    , page : Page
+    }
+
+
+type Page
+    = NotFound Session
+    | Home Session
     | Settings Settings.Model
-    | Tensor Tensor.Model
-    | Initialize Session
-    | DaemonOffline Session
+    | Repo String Repo.Model
+    | Welcome Welcome.Model
 
 
 
 -- MODEL
 
 
-init : Maybe Route.Path -> Url -> Nav.Key -> ( Model, Cmd Msg )
-init maybepath url navKey =
-    case maybepath of
-        Just path ->
-            changeRouteTo url
-                (Redirect (Session.fromPath navKey path url))
+init : Value -> Url -> Nav.Key -> ( Model, Cmd Msg )
+init value url navKey =
+    let
+        decodeResult =
+            Decode.decodeValue Decode.string value
+                |> Result.andThen (Decode.decodeString (Session.sessionDecoder url))
+    in
+    case decodeResult of
+        Ok session ->
+            stepUrl url { key = navKey, page = Home session }
 
-        Nothing ->
-            ( Initialize (Session.init url navKey)
-            , Api.check url |> Task.attempt (GetInitHash url)
-            )
+        Err _ ->
+            ( Model navKey (Welcome { session = Session.default url, name = "", email = "" }), Cmd.none )
 
 
 
+--init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
+--init url navKey =
+--    ( { key = navKey, page = Home { session | settings = settings, url = url } }
+--    , Api.get (Endpoint.filesRead host "/suzdal/settings.json") GotAuthor Repo.authorDecoder )
 -- VIEW
 
 
@@ -68,97 +81,81 @@ view model =
         viewPage page toMsg doc =
             let
                 { title, body } =
-                    Page.view (Session.path (toSession model)) page doc
+                    Page.view page doc
             in
             { title = title
             , body = List.map (Html.map toMsg) body
             }
     in
-    case model of
-        Redirect _ ->
-            viewPage Page.Other (\_ -> Ignored) Blank.view
+    case model.page of
+        Welcome welcome ->
+            { title = "Добро пожаловать в Суз-Даль"
+            , body = List.map (Html.map GotWelcomeMsg) <| Layout.toHtml <| Welcome.view welcome
+            }
 
-        NotFound _ ->
-            viewPage Page.Other (\_ -> Ignored) NotFound.view
+        Home home ->
+            { title = "Список репозиториев"
+            , body = List.map (Html.map GotHomeMsg) <| Layout.toHtml <| Home.view home
+            }
 
         Settings settings ->
             viewPage Page.Settings GotSettingsMsg (Settings.view settings)
 
-        Home home ->
-            viewPage Page.Home GotHomeMsg (Home.view home)
+        Repo name repo ->
+            viewPage (Page.Repo name) GotRepoMsg (Repo.view repo)
 
-        Tensor tensor ->
-            viewPage Page.Tensor GotTensorMsg (Tensor.view tensor)
-
-        Initialize _ ->
-            viewPage Page.Other
-                (\_ -> Ignored)
-                { title = "Инициализируем..."
-                , content =
-                    column [ centerX, centerY ]
-                        [ html Icons.loader
-                        , el [ padding 15, Font.size 24 ] <| text "Инициализация..."
-                        ]
-                }
-
-        DaemonOffline _ ->
-            viewPage Page.Other
-                (\_ -> Ignored)
-                { title = "IPFS daemon offline"
-                , content = paragraph [ centerX, centerY, width <| px 500, Font.size 24 ] <| [ text "IPFS daemon оффлайн! Включите IPFS" ]
-                }
+        NotFound _ ->
+            viewPage Page.Other (\_ -> Ignored) NotFound.view
 
 
 
+--Loading ->
+--    { title = "Список репозиториев"
+--    , body = Layout.toHtml <| Loading.spinner "Инициализация"
+--    }
 -- UPDATE
 
 
 type Msg
     = Ignored
-    | ChangedRoute (Maybe Route)
+      --    | GotAuthor (Result Http.Error Repo.Author)
     | ChangedUrl Url
     | ClickedLink Browser.UrlRequest
     | GotHomeMsg Home.Msg
     | GotSettingsMsg Settings.Msg
-    | GotTensorMsg Tensor.Msg
-    | GotSession Session
-    | GetInitHash Url (Result Http.Error Hash)
+    | GotRepoMsg Repo.Msg
+    | GotWelcomeMsg Welcome.Msg
+    | GotRepos (Result Http.Error (List Repo))
 
 
 toSession : Model -> Session
-toSession page =
+toSession { key, page } =
     case page of
-        Redirect session ->
-            session
-
         NotFound session ->
             session
 
-        Home home ->
-            Home.toSession home
+        Home session ->
+            session
 
         Settings settings ->
             Settings.toSession settings
 
-        Tensor tensor ->
-            Tensor.toSession tensor
+        Repo name repo ->
+            Repo.toSession repo
 
-        Initialize session ->
-            session
-
-        DaemonOffline session ->
-            session
+        Welcome welcome ->
+            Welcome.toSession welcome
 
 
-changeRouteTo : Url -> Model -> ( Model, Cmd Msg )
-changeRouteTo url model =
+stepUrl : Url -> Model -> ( Model, Cmd Msg )
+stepUrl url model =
     let
         session =
             toSession model
     in
     case Route.fromUrl url of
         Nothing ->
-            ( NotFound session, Cmd.none )
+            ( model, Cmd.none )
 
         Just Route.Settings ->
             Settings.init session
@@ -168,43 +165,51 @@ changeRouteTo url model =
             Home.init session
                 |> updateWith Home GotHomeMsg model
 
-        Just (Route.Tensor path) ->
-            Tensor.init (Session.update session path url) path
-                |> updateWith Tensor GotTensorMsg model
+        Just (Route.Repo name) ->
+            case Session.getRepo name session.repos of
+                Just repo ->
+                    Repo.init name repo session
+                        |> updateWith (Repo name) GotRepoMsg model
+
+                Nothing ->
+                    ( model, Cmd.none )
+
+        Just Route.Welcome ->
+            Welcome.init session
+                |> updateWith Welcome GotWelcomeMsg model
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    case ( msg, model ) of
-        ( Ignored, _ ) ->
+    case msg of
+        {- GotAuthor (Ok author) ->
+               ( model
+               , Cmd.none
+                 --Api.get (Endpoint.filesRead host "/suzdal/settings.json") GotRepos Repo.authorDecoder
+               )
+
+           GotAuthor (Err _) ->
+               ( Model navKey (Welcome { session = session, name = "", email = "" }), Cmd.none )
+        -}
+        GotRepos (Ok repos) ->
+            ( model, Cmd.batch [ Route.replaceUrl model.key Route.Home ] )
+
+        GotRepos (Err e) ->
             ( model, Cmd.none )
 
-        ( GetInitHash url result, _ ) ->
-            case result of
-                Ok hash ->
-                    changeRouteTo { url | fragment = Just ("/" ++ hash) } model
+        Ignored ->
+            ( model, Cmd.none )
 
-                Err _ ->
-                    ( DaemonOffline (toSession model), Cmd.none )
-
-        ( ClickedLink urlRequest, _ ) ->
+        ClickedLink urlRequest ->
             case urlRequest of
                 Browser.Internal url ->
                     case url.fragment of
                         Nothing ->
-                            -- If we got a link that didn't include a fragment,
-                            -- it's from one of those (href "") attributes that
-                            -- we have to include to make the RealWorld CSS work.
-                            --
-                            -- In an application doing path routing instead of
-                            -- fragment-based routing, this entire
-                            -- `case url.fragment of` expression this comment
-                            -- is inside would be unnecessary.
                             ( model, Cmd.none )
 
                         Just _ ->
                             ( model
-                            , Nav.pushUrl (Session.navKey (toSession model)) (Url.toString url)
+                            , Nav.pushUrl model.key (Url.toString url)
                             )
 
                 Browser.External href ->
@@ -212,38 +217,45 @@ update msg model =
                     , Nav.load href
                     )
 
-        ( ChangedUrl url, _ ) ->
-            changeRouteTo url model
+        ChangedUrl url ->
+            stepUrl url model
 
-        ( ChangedRoute route, _ ) ->
-            ( model, Cmd.none )
+        GotSettingsMsg subMsg ->
+            case model.page of
+                Settings settings ->
+                    Settings.update subMsg settings |> updateWith Settings GotSettingsMsg model
 
-        --changeRouteTo route model
-        ( GotSettingsMsg subMsg, Settings settings ) ->
-            Settings.update subMsg settings
-                |> updateWith Settings GotSettingsMsg model
+                _ ->
+                    ( model, Cmd.none )
 
-        ( GotTensorMsg subMsg, Tensor tensor ) ->
-            Tensor.update subMsg tensor
-                |> updateWith Tensor GotTensorMsg model
+        GotRepoMsg subMsg ->
+            case model.page of
+                Repo name repo ->
+                    Repo.update subMsg repo |> updateWith (Repo name) GotRepoMsg model
 
-        ( GotHomeMsg subMsg, Home home ) ->
-            Home.update subMsg home
-                |> updateWith Home GotHomeMsg model
+                _ ->
+                    ( model, Cmd.none )
 
-        ( GotSession session, Redirect _ ) ->
-            ( Redirect session
-            , Route.replaceUrl (Session.navKey session) Route.Home
-            )
+        GotHomeMsg subMsg ->
+            case model.page of
+                Home home ->
+                    Home.update subMsg home |> updateWith Home GotHomeMsg model
 
-        ( _, _ ) ->
-            -- Disregard messages that arrived for the wrong page.
-            ( model, Cmd.none )
+                _ ->
+                    ( model, Cmd.none )
+
+        GotWelcomeMsg subMsg ->
+            case model.page of
+                Welcome welcome ->
+                    Welcome.update subMsg welcome |> updateWith Welcome GotWelcomeMsg model
+
+                _ ->
+                    ( model, Cmd.none )
 
 
-updateWith : (subModel -> Model) -> (subMsg -> Msg) -> Model -> ( subModel, Cmd subMsg ) -> ( Model, Cmd Msg )
-updateWith toModel toMsg model ( subModel, subCmd ) =
-    ( toModel subModel
+updateWith : (subModel -> Page) -> (subMsg -> Msg) -> Model -> ( subModel, Cmd subMsg ) -> ( Model, Cmd Msg )
+updateWith toPage toMsg model ( subModel, subCmd ) =
+    ( { model | page = toPage subModel }
     , Cmd.map toMsg subCmd
     )
 
@@ -254,27 +266,20 @@ updateWith toModel toMsg model ( subModel, subCmd ) =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    case model of
+    case model.page of
         NotFound _ ->
             Sub.none
 
-        Redirect _ ->
-            Sub.none
-
-        --Session.changes GotSession (Session.navKey (toSession model))
         Settings settings ->
             Sub.map GotSettingsMsg (Settings.subscriptions settings)
 
         Home home ->
             Sub.map GotHomeMsg (Home.subscriptions home)
 
-        Tensor tensor ->
-            Sub.map GotTensorMsg (Tensor.subscriptions tensor)
+        Repo _ repo ->
+            Sub.map GotRepoMsg (Repo.subscriptions repo)
 
-        Initialize _ ->
-            Sub.none
-
-        DaemonOffline _ ->
+        _ ->
             Sub.none
 
 
@@ -284,7 +289,7 @@ subscriptions model =
 
 main : Program Value Model Msg
 main =
-    Api.application Session.pathDecoder
+    Browser.application
         { init = init
         , onUrlChange = ChangedUrl
         , onUrlRequest = ClickedLink

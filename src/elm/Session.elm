@@ -1,11 +1,13 @@
-module Session exposing (Session, fromPath, init, navKey, path, pathDecoder, update, url)
+module Session exposing (Session, Settings, default, getRepo, removeRepo, sessionDecoder, settingsDecoder, store, updateAuthor, updateRepo, updateSettings)
 
 import Api
 import Avatar exposing (Avatar)
 import Browser.Navigation as Nav
+import Dict exposing (Dict)
 import Json.Decode as Decode exposing (Decoder)
-import Json.Decode.Pipeline exposing (custom, required, requiredAt)
+import Json.Decode.Pipeline exposing (custom, hardcoded, required, requiredAt)
 import Json.Encode as Encode exposing (Value)
+import Repo exposing (Author, Node, Repo)
 import Route exposing (Path)
 import Time
 import Url exposing (Url)
@@ -15,81 +17,111 @@ import Url exposing (Url)
 -- TYPES
 
 
-type Session
-    = Session Nav.Key Path Url
-    | Init Nav.Key Url
+type alias Session =
+    { url : Url
+    , settings : Settings
+    , repos : Dict String Repo
+    }
+
+
+type alias Settings =
+    { shownodeprops : Bool
+    , author : Author
+    }
 
 
 
--- INFO
+-- INIT
 
 
-init : Url -> Nav.Key -> Session
-init str key =
-    Init key str
+default : Url -> Session
+default url =
+    { url = url
+    , repos = Repo.defaultRepos
+    , settings = defaultSettings
+    }
 
 
-update : Session -> Path -> Url -> Session
-update session newpath str =
-    case session of
-        Session key _ _ ->
-            Session key newpath str
-
-        Init key _ ->
-            Session key newpath str
+store : Session -> Cmd msg
+store session =
+    Api.storeObject ( "session", encodeSession session )
 
 
-path : Session -> Maybe Path
-path session =
-    case session of
-        Session _ val _ ->
-            Just val
-
-        Init _ _ ->
-            Nothing
-
-
-url : Session -> Url
-url session =
-    case session of
-        Session _ _ a ->
-            a
-
-        Init _ a ->
-            a
-
-
-navKey : Session -> Nav.Key
-navKey session =
-    case session of
-        Session key _ _ ->
-            key
-
-        Init key _ ->
-            key
+defaultSettings : Settings
+defaultSettings =
+    { author = { email = "default", name = "default" }
+    , shownodeprops = False
+    }
 
 
 
--- SERIALIZATION
+-- ENCODERS
 
 
-pathDecoder : Decoder Path
-pathDecoder =
-    Decode.succeed Path
-        |> requiredAt [ "path", "cid" ] Decode.string
-        |> requiredAt [ "path", "location" ] (Decode.list Decode.int)
+encodeSettings : Settings -> Encode.Value
+encodeSettings s =
+    Encode.object
+        [ ( "shownodeprops", Encode.bool s.shownodeprops )
+        , ( "author", Repo.authorEncoder s.author )
+        ]
+
+
+encodeSession : Session -> Encode.Value
+encodeSession session =
+    Encode.object
+        [ ( "url", Encode.string <| Url.toString session.url )
+        , ( "repos", Repo.reposEncoder session.repos )
+        , ( "settings", encodeSettings session.settings )
+        ]
 
 
 
--- CHANGES
---changes : (Session -> msg) -> Nav.Key -> Sub msg
---changes toMsg key =
---    Api.viewerChanges (\x -> toMsg (fromPath key x)) pathDecoder
+-- DECODERS
 
 
-fromPath : Nav.Key -> Path -> Url -> Session
-fromPath key p str =
-    -- It's stored in localStorage as a JSON String;
-    -- first decode the Value as a String, then
-    -- decode that String as JSON.
-    Session key p str
+sessionDecoder : Url -> Decoder Session
+sessionDecoder url =
+    Decode.succeed Session
+        |> hardcoded url
+        |> required "settings" settingsDecoder
+        |> required "repos" Repo.reposDecoder
+
+
+settingsDecoder : Decoder Settings
+settingsDecoder =
+    Decode.succeed Settings
+        |> required "shownodeprops" Decode.bool
+        |> required "author" Repo.authorDecoder
+
+
+
+-- GETTERS & SETTERS
+
+
+getRepo : String -> Dict String Repo -> Maybe Repo
+getRepo key dict =
+    Dict.get key dict
+
+
+removeRepo : String -> Session -> Session
+removeRepo key session =
+    { session | repos = Dict.remove key session.repos }
+
+
+updateRepo : String -> Repo -> Session -> Session
+updateRepo key repo session =
+    { session | repos = Dict.insert key repo session.repos }
+
+
+updateAuthor : Author -> Session -> Session
+updateAuthor author session =
+    let
+        settings =
+            session.settings
+    in
+    { session | settings = { settings | author = author } }
+
+
+updateSettings : Settings -> Session -> Session
+updateSettings settings session =
+    { session | settings = settings }

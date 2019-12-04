@@ -1,4 +1,4 @@
-module Icons exposing
+module UI.Icons exposing
     ( activity
     , airplay
     , alertCircle
@@ -291,7 +291,6 @@ svgFeatherIcon className =
     svg
         [ class <| "feather feather-" ++ className
         , fill "none"
-        , width "30"
         , stroke "currentColor"
         , strokeLinecap "round"
         , strokeLinejoin "round"

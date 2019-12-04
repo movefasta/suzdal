@@ -20,7 +20,7 @@ view timeZone timestamp =
 
 {-| Format a timestamp as a String, like so:
 
-    "February 14, 2018"
+    "12:00 07.09.2019"
 
 For more complex date formatting scenarios, here's a nice package:
 <https://package.elm-lang.org/packages/ryannhg/date-format/latest/>

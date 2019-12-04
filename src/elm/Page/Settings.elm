@@ -9,7 +9,6 @@ import Avatar
 import Browser.Dom as Dom
 import Browser.Events
 import Browser.Navigation as Nav
-import Colors exposing (..)
 import Dict exposing (Dict)
 import Element as E exposing (..)
 import Element.Background as Background
@@ -24,16 +23,21 @@ import Html
 import Html.Attributes
 import Html.Events as HtmlEvents
 import Http
-import Icons
 import Json.Decode as Decode exposing (Decoder, decodeString, field, list, string)
 import Json.Decode.Pipeline exposing (hardcoded, optional, required)
 import Json.Encode as Encode
+import List.Extra
 import Loading
 import Log
 import Process
+import Repo exposing (Author)
 import Route
-import Session exposing (Session, url)
+import Session exposing (Session, Settings)
 import Task
+import Time
+import UI.Button as Button exposing (button)
+import UI.Colors as Colors
+import UI.Icons as Icons
 import Url exposing (Url)
 import Username as Username exposing (Username)
 
@@ -42,24 +46,25 @@ init : Session -> ( Model, Cmd Msg )
 init session =
     let
         host =
-            Session.url session
+            session.url
     in
     ( { session = session
       , problems = []
       , status = Loading
       , config = Loading
       , id = Loading
-      , shownodeprops = False
       , peers = []
       , swarm = Loading
       , repo = Loading
+      , author = Loading
       }
     , Cmd.batch
         [ Api.get (Endpoint.config host) GotConfig Api.NodeConfig.decoder
         , Api.get (Endpoint.id host) GotNodeID idDecoder
         , Api.get (Endpoint.repoStat host) GotRepoStat Api.RepoStat.decoder
-        , Api.get (Endpoint.swarmPeers host) GotSwarmPeers Api.SwarmPeers.decoder
-        , Process.sleep 100 |> Task.perform (always RetrieveLocalStoragePeers)
+        , checkSwarmPeers host
+        , Api.get (Endpoint.filesRead host "/suzdal/settings.json") GotAuthor Repo.authorDecoder
+        , Process.sleep 0 |> Task.perform (always RetrieveLocalStoragePeers)
         ]
     )
 
@@ -83,10 +88,10 @@ subscriptions model =
         decoder =
             Decode.decodeValue decodePeers
 
-        retrieval ( key, json ) =
+        retrieval ( _, json ) =
             GotPeers (decoder json)
     in
-    Api.objectRetrieved retrieval
+    Sub.batch [ Api.objectRetrieved retrieval ]
 
 
 
@@ -99,10 +104,10 @@ type alias Model =
     , status : Status Form
     , config : Status IpfsNodeConfig
     , id : Status IpfsNodeID
-    , shownodeprops : Bool
     , peers : List Peer
     , swarm : Status SwarmPeers
     , repo : Status RepoStat
+    , author : Status Author
 
     --, palette : Palette
     --, red : Float
@@ -183,14 +188,6 @@ type Problem
     | ServerError String
 
 
-{-| A form that has been validated. Only the `edit` function uses this. Its
-purpose is to prevent us from forgetting to validate the form before passing
-it to `edit`.
-
-This doesn't create any guarantees that the form was actually validated. If
-we wanted to do that, we'd need to move the form data into a separate module!
-
--}
 type ValidForm
     = Valid Form
 
@@ -210,52 +207,65 @@ type Msg
     | CompletedSave (Result Http.Error Hash)
     | GotSession Session
     | PassedSlowLoadThreshold
-    | UpdateLocalStorage String
     | GotConfig (Result Http.Error IpfsNodeConfig)
     | GotNodeID (Result Http.Error IpfsNodeID)
     | PublishPeers (List Peer)
     | Published (Result Http.Error String)
     | GotPeerStatus Int (Result Http.Error String)
     | GotPeers (Result Decode.Error (List Peer))
+    | GotAuthor (Result Http.Error Author)
     | Hover Peer Bool
     | AddPeer
     | UpdatePeer Peer
     | DeletePeer Int
-    | NoOp
-    | CheckPeers (List Peer)
     | SavePeer Peer
+    | NoOp
+    | Tick Time.Posix
+    | CheckPeers (List Peer)
     | RetrieveLocalStoragePeers
     | GotSwarmPeers (Result Http.Error SwarmPeers)
     | GotRepoStat (Result Http.Error RepoStat)
-    | UpdatePeersConnections
+    | InvertShowNodeProps Bool
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     let
         url =
-            Session.url model.session
+            model.session.url
+
+        settings =
+            model.session.settings
     in
     case msg of
         NoOp ->
             ( model, Cmd.none )
 
+        Tick _ ->
+            ( model, Cmd.none )
+
+        InvertShowNodeProps bool ->
+            ( { model | session = Session.updateSettings { settings | shownodeprops = bool } model.session }
+            , Cmd.none
+            )
+
+        --checkSwarmPeers url )
         RetrieveLocalStoragePeers ->
             ( model, Api.retrieveObject "peers" )
 
         Hover peer bool ->
-            ( { model | peers = updateIf (\p -> p.id == peer.id) (\p -> { p | hover = bool }) model.peers }, Cmd.none )
+            ( { model | peers = List.Extra.updateIf (\p -> p.id == peer.id) (\p -> { p | hover = bool }) model.peers }, Cmd.none )
 
         UpdatePeer updatedpeer ->
-            ( { model | peers = updateIf (\p -> p.id == updatedpeer.id) (always updatedpeer) model.peers }, Cmd.none )
+            ( { model | peers = List.Extra.updateIf (\p -> p.id == updatedpeer.id) (always updatedpeer) model.peers }, Cmd.none )
 
         SavePeer peertosave ->
             let
                 newpeers =
-                    updateIf (\p -> p.id == peertosave.id) (always peertosave) model.peers
+                    List.Extra.updateIf (\p -> p.id == peertosave.id) (always peertosave) model.peers
             in
             ( { model | peers = newpeers }
-            , Cmd.batch [ checkPeer peertosave.id peertosave.hash "" url, Api.storePeers (encodePeers newpeers) ]
+            , Cmd.batch [ checkPeer "" url peertosave, Api.storePeers (encodePeers newpeers) ]
             )
 
         DeletePeer id ->
@@ -276,6 +286,12 @@ update msg model =
                     anonymous id :: model.peers
             in
             ( { model | peers = newpeers }, Cmd.none )
+
+        GotAuthor (Ok author) ->
+            ( { model | author = Loaded author }, Cmd.none )
+
+        GotAuthor (Err _) ->
+            ( { model | problems = [ ServerError "GotAuthor Error" ] }, Cmd.none )
 
         GotPeerStatus id result ->
             let
@@ -300,10 +316,10 @@ update msg model =
         Published result ->
             case result of
                 Ok string ->
-                    ( { model | problems = [ ServerError ("Список пиров опубликован. Текущий адрес: " ++ string) ] }, Cmd.none )
+                    ( { model | problems = [ ServerError ("Список пиров опубликован, текущий адрес: " ++ string) ] }, Cmd.none )
 
                 Err _ ->
-                    ( { model | problems = [ ServerError "Ошибка сохранения списка пиров" ] }, Cmd.none )
+                    ( { model | problems = [ ServerError "Ошибка публикации списка пиров" ] }, Cmd.none )
 
         GotNodeID result ->
             case result of
@@ -316,23 +332,19 @@ update msg model =
         GotPeers result ->
             case result of
                 Ok peers ->
-                    update UpdatePeersConnections { model | peers = peers }
+                    ( { model | peers = peers }, Task.perform (\_ -> CheckPeers peers) Time.now )
 
-                Err _ ->
-                    ( model, Cmd.none )
-
-        UpdatePeersConnections ->
-            case model.swarm of
-                Loaded swarm ->
-                    ( { model | peers = List.map (updateConnection swarm) model.peers }, Cmd.none )
-
-                _ ->
-                    ( model, Cmd.none )
+                Err error ->
+                    ( { model | problems = [ ServerError <| Decode.errorToString error ] }, Cmd.none )
 
         GotSwarmPeers result ->
             case result of
                 Ok swarm ->
-                    update UpdatePeersConnections { model | swarm = Loaded swarm }
+                    let
+                        updatedpeers =
+                            List.map (updateConnection swarm) model.peers
+                    in
+                    ( { model | swarm = Loaded swarm, peers = updatedpeers }, Cmd.batch <| List.map (checkPeer "" url) updatedpeers )
 
                 Err _ ->
                     ( model, Cmd.none )
@@ -347,7 +359,7 @@ update msg model =
 
         CheckPeers peers ->
             ( { model | peers = List.map (\p -> { p | connection = Pending }) peers }
-            , Cmd.batch <| List.map (\peer -> checkPeer peer.id peer.hash "" url) peers
+            , Cmd.batch <| List.map (checkPeer "" url) peers
             )
 
         GotConfig result ->
@@ -357,9 +369,6 @@ update msg model =
 
                 Err problems ->
                     ( { model | config = Failed }, Cmd.none )
-
-        UpdateLocalStorage hash ->
-            ( model, Api.storePath { cid = hash, location = [] } )
 
         CompletedFormLoad (Ok form) ->
             ( { model | status = Loaded form }
@@ -375,7 +384,7 @@ update msg model =
             case validate form of
                 Ok validForm ->
                     ( { model | status = Loaded form }
-                    , Api.put (Session.url model.session) (body validForm) CompletedSave
+                    , Api.put url (body validForm) CompletedSave
                     )
 
                 Err problems ->
@@ -409,9 +418,7 @@ update msg model =
             )
 
         CompletedSave (Ok hash) ->
-            ( model
-            , Api.storePath { cid = hash, location = [] }
-            )
+            ( model, Cmd.none )
 
         GotSession session ->
             ( { model | session = session }
@@ -458,19 +465,49 @@ view model =
             , paddingXY 25 10
             , alignTop
             , spacing 20
-            , Font.color <| black 1.0
+            , Font.color <| Colors.black 1.0
             , htmlAttribute (Html.Attributes.style "flex-shrink" "1")
             , clip
             ]
             [ column
-                [ width fill, height fill, scrollbarY, spacing 20 ]
+                [ width fill
+                , height fill
+                , alignTop
+                , scrollbarY
+                , spacing 40
+                ]
                 [ viewPeers model.swarm model.peers
-                , viewRemote "Статистика репозитория" viewRepoStat model.repo
+                , viewSettings model.session.settings
                 , viewRemote "Идентификационные данные" viewID model.id
+                , viewRemote "Учётные данные пользователя" viewAuthor model.author
+                , viewRemote "Статистика репозитория" viewRepoStat model.repo
                 ]
             , viewRemote "Полная конфигурация" viewRawConfig model.config
             ]
     }
+
+
+viewAuthor : Author -> Element Msg
+viewAuthor author =
+    column
+        [ width fill, height fill, spacing 15, alignTop ]
+        [ viewIdProperty "Имя пользователя" (text author.name)
+        , viewIdProperty "Email" (text author.email)
+        ]
+
+
+viewSettings : Settings -> Element Msg
+viewSettings settings =
+    column
+        [ width fill, height fill, spacing 15, alignTop ]
+        [ header "Настройки отображения"
+        , Input.checkbox []
+            { onChange = InvertShowNodeProps
+            , icon = Input.defaultCheckbox
+            , checked = settings.shownodeprops
+            , label = Input.labelRight [ spacing 7 ] <| text "Показывать подробную информацию о выбранной ячейке"
+            }
+        ]
 
 
 viewRepoStat : RepoStat -> Element Msg
@@ -509,19 +546,13 @@ viewPeers response peers =
         [ row
             [ spacing 10 ]
             [ header "Список избранных пиров"
-            , el
-                [ Event.onClick AddPeer, pointer, width <| px 22, height <| px 22 ]
-              <|
-                html Icons.plusCircle
-            , el
-                [ Event.onClick <| CheckPeers peers, pointer, width <| px 22, height <| px 22 ]
-              <|
-                html Icons.refreshCcw
+            , Button.add AddPeer
+            , Button.refresh (CheckPeers peers)
             , el [ Font.italic, paddingXY 7 0 ] <|
                 text <|
                     case response of
                         Loaded swarm ->
-                            "Всего онлайн : " ++ String.fromInt (Api.SwarmPeers.amount swarm)
+                            "Всего онлайн в рое : " ++ String.fromInt (Api.SwarmPeers.amount swarm)
 
                         Failed ->
                             "Ошибка запроса списка пиров"
@@ -560,7 +591,7 @@ viewPeer peer =
                 { offset = ( 1, 1 )
                 , size = 1
                 , blur = 2
-                , color = lightGrey 1.0
+                , color = Colors.lightGrey 1.0
                 }
     in
     column
@@ -580,7 +611,7 @@ viewPeer peer =
             , width fill
             , spacing 15
             ]
-            [ el [] <|
+            [ el [ width <| px 30 ] <|
                 html <|
                     if peer.isRelay then
                         Icons.server
@@ -604,7 +635,7 @@ viewPeer peer =
 
                     else
                         UpdatePeer { peer | editing = True }
-                , paddingXY 10 0
+                , width <| px 30
                 , pointer
                 ]
               <|
@@ -616,13 +647,11 @@ viewPeer peer =
                         Icons.edit
             , el
                 [ transparent <| not (peer.hover || peer.editing)
-                , Event.onClick <| DeletePeer peer.id
                 , paddingXY 10 0
                 , alignRight
-                , pointer
                 ]
               <|
-                html Icons.trash2
+                Button.delete (DeletePeer peer.id)
             ]
         , if peer.editing then
             viewPeerProperties peer
@@ -662,12 +691,13 @@ viewPeerProperties peer =
             { onChange = \_ -> UpdatePeer { peer | isRelay = not peer.isRelay }
             , icon =
                 \pred ->
-                    html <|
-                        if pred then
-                            Icons.checkSquare
+                    el [ width <| px 30 ] <|
+                        html <|
+                            if pred then
+                                Icons.checkSquare
 
-                        else
-                            Icons.square
+                            else
+                                Icons.square
             , checked = peer.isRelay
             , label =
                 Input.labelRight
@@ -749,26 +779,23 @@ viewID id =
         ]
 
 
-checkPeer : Int -> String -> String -> Url -> Cmd Msg
-checkPeer id hash relay url =
-    Api.get (Endpoint.connect url hash relay) (GotPeerStatus id) (Decode.field "Strings" <| Decode.succeed "Ok")
+checkPeer : String -> Url -> Peer -> Cmd Msg
+checkPeer relay url peer =
+    case peer.connection of
+        Pending ->
+            Cmd.none
+
+        _ ->
+            Api.get (Endpoint.connect url peer.hash relay) (GotPeerStatus peer.id) (Decode.field "Strings" <| Decode.succeed "Ok")
+
+
+checkSwarmPeers : Url -> Cmd Msg
+checkSwarmPeers host =
+    Api.get (Endpoint.swarmPeers host) GotSwarmPeers Api.SwarmPeers.decoder
 
 
 
 -- HELPERS
-
-
-updateIf : (Peer -> Bool) -> (Peer -> Peer) -> List Peer -> List Peer
-updateIf predicate updatefun list =
-    List.map
-        (\peer ->
-            if predicate peer then
-                updatefun peer
-
-            else
-                peer
-        )
-        list
 
 
 anonymous : Int -> Peer
@@ -796,7 +823,7 @@ maybeView viewer maybe =
 header : String -> Element Msg
 header str =
     el
-        [ Border.color <| darkGrey 1.0
+        [ Border.color <| Colors.darkGrey 1.0
         , Border.widthEach { edges | bottom = 2 }
         , Font.size 20
         , width shrink
@@ -1050,7 +1077,7 @@ updateConnection swarm peer =
         { peer | connection = Online InSwarm }
 
     else
-        { peer | connection = Online OutOfSwarm }
+        { peer | connection = Pending }
 
 
 

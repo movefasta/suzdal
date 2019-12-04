@@ -1,4 +1,4 @@
-module Colors exposing
+module UI.Colors exposing
     ( black
     , blue
     , cyan
@@ -16,6 +16,39 @@ import Element exposing (Color, rgba, rgba255)
 
 
 
+--, Input.radioRow
+--    [ width fill
+--    , spacing 5
+--    ]
+--    { onChange = \new -> UpdateFocus { node | color = new }
+--    , selected = Just node.color
+--    , label = Input.labelAbove [ padding 3 ] (el [ Font.size 10 ] <| text "Цвет")
+--    , options =
+--        let
+--            option i x =
+--                el
+--                    [ width <| px 30
+--                    , height <| px 25
+--                    , Border.widthEach { bottom = 3, left = 0, right = 0, top = 0 }
+--                    , Background.color <| colorCodeConverter i hue 1.0
+--                    , Border.color <|
+--                        case x of
+--                            Input.Idle ->
+--                                white 0
+--                            Input.Focused ->
+--                                lightGrey 0.8
+--                            Input.Selected ->
+--                                darkGrey 1.0
+--                    ]
+--                <|
+--                    text ""
+--        in
+--        List.range 0 9
+--            |> List.map
+--                (\code ->
+--                    Input.optionWith code (option code)
+--                )
+--    }
 -- FROM HSL
 
 

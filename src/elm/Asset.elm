@@ -1,4 +1,4 @@
-module Asset exposing (Image, defaultAvatar, error, loading, src)
+module Asset exposing (Image, defaultAvatar, error, loading, logo, src)
 
 {-| Assets, such as images, videos, and audio. (We only have images for now.)
 
@@ -7,6 +7,7 @@ all of them. One source of truth!
 
 -}
 
+import Api.Endpoint as Endpoint
 import Element exposing (..)
 
 
@@ -31,6 +32,17 @@ loading =
 defaultAvatar : Image
 defaultAvatar =
     image "smiley-cyrus.jpg"
+
+
+logo : Image
+logo =
+    image "suzdal_logo.svg"
+
+
+
+--logo : Image
+--logo =
+--    Image "http://localhost:8080/ipfs/QmPiojQnt2vjPXJiD3rorSekeNA1rGcrpWpaFctvNkm7UB/suzdal_logo.svg"
 
 
 image : String -> Image

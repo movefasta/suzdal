@@ -1,4 +1,4 @@
-module Api.Endpoint exposing (Endpoint, add, config, configSet, connect, content, dagGet, dagPut, file, getContent, id, pinAdd, pinLs, publish, repoStat, request, resolve, swarmPeers, task, unwrap)
+module Api.Endpoint exposing (Endpoint, add, changeLog, config, configSet, connect, content, dagGet, dagPut, file, filesRead, filesWrite, getContent, getInitRepos, id, node, pinAdd, pinLs, publish, repoStat, request, resolve, swarmPeers, task, unwrap)
 
 import CommentId exposing (CommentId)
 import Http
@@ -12,6 +12,18 @@ import Username exposing (Username)
 
 
 -- ENDPOINTS
+
+
+changeLog : Endpoint
+changeLog =
+    Url.Builder.relative [ "CHANGELOG.md" ] []
+        |> Endpoint
+
+
+getInitRepos : Endpoint
+getInitRepos =
+    Url.Builder.relative [ "repos.json" ] []
+        |> Endpoint
 
 
 getContent : Url -> String -> Endpoint
@@ -37,6 +49,31 @@ dagPut url =
 publish : Url -> String -> Endpoint
 publish url cid =
     urlBuilder (endpoint url) [ "name", "publish" ] [ Url.Builder.string "arg" cid, Url.Builder.string "allow-offline" "true" ]
+
+
+filesRead : Url -> String -> Endpoint
+filesRead url path =
+    urlBuilder (endpoint url) [ "files", "read" ] [ Url.Builder.string "arg" path ]
+
+
+
+--filesWrite : Url -> String -> Endpoint
+--filesWrite url path =
+--    urlBuilder (endpoint url) [ "files", "write" ] [ Url.Builder.string "arg" path, Url.Builder.string "create" "true" ]
+
+
+filesWrite : Url -> String -> Endpoint
+filesWrite url path =
+    let
+        options =
+            String.join "&" [ path, "create=true", "truncate=true", "parents=true" ]
+    in
+    Endpoint (endpoint url ++ "/files/write?arg=" ++ options)
+
+
+filesStat : Url -> String -> Endpoint
+filesStat url path =
+    urlBuilder (endpoint url) [ "files", "stat" ] [ Url.Builder.string "arg" path ]
 
 
 
@@ -74,6 +111,21 @@ content url path =
         ++ "/"
         ++ location
         ++ "/cid"
+        |> Endpoint
+
+
+node : Url -> Route.Path -> Endpoint
+node url path =
+    let
+        location =
+            List.map (\s -> "links/" ++ String.fromInt s) path.location
+                |> String.join "/"
+    in
+    endpoint url
+        ++ "/dag/get?arg="
+        ++ path.cid
+        ++ "/"
+        ++ location
         |> Endpoint
 
 
@@ -117,10 +169,15 @@ pinLs url hash =
     urlBuilder (endpoint url) [ "pin", "ls" ] [ Url.Builder.string "arg" hash ]
 
 
+pinRm : Url -> String -> Endpoint
+pinRm url hash =
+    urlBuilder (endpoint url) [ "pin", "rm" ] [ Url.Builder.string "arg" hash ]
 
--- pin ls with arg SUCCESS - {"Keys":{"bafyreic54hfxtkjfuasmc2d3ktmhylkkvsiumprzsuzznhw7xqkyekpru4":{"Type":"recursive"}}}
+
+
+-- pin ls with arg SUCCESS - {"Keys":{"QmHash":{"Type":"recursive"}}}
 -- pin ls with arg NOT FOUND - {"Message":"merkledag: not found","Code":0,"Type":"error"}
--- pin ls with arg INVALID PATH - {"Message":"invalid path \"bafyreic54hfxtkjfuasmc2d3ktmhylkkvsiumprzsuzznhw7xqkyekpru\": multihash length inconsistent: \u0026{18 sha2-256 32 [93 ... 241]}","Code":0,"Type":"error"}
+-- pin ls with arg INVALID PATH - {"Message":"invalid path \"QmHash\": multihash length inconsistent: \u0026{18 sha2-256 32 [93 ... 241]}","Code":0,"Type":"error"}
 -- TYPES
 
 

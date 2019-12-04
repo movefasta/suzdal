@@ -3,6 +3,7 @@ elm-stuff
 npm-debug.log
 .DS_Store
 src/static/elm.js
+yarn-error.log
 # elm-repl generated files
 repl-temp-*
 dist

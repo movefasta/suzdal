@@ -3,7 +3,6 @@ module Page exposing (Page(..), processPath, view)
 import Api
 import Avatar
 import Browser exposing (Document)
-import Colors exposing (..)
 import Element as E exposing (..)
 import Element.Background as Background
 import Element.Border as Border
@@ -13,61 +12,48 @@ import Element.Input as Input
 import Element.Lazy exposing (lazy, lazy2)
 import Html exposing (Html)
 import Html.Attributes
-import Icons
 import Json.Decode as Decode
+import Repo
 import Route exposing (Path, Route)
 import Session exposing (Session)
+import UI.Colors as Colors
+import UI.Icons as Icons
+import UI.Layout as Layout
+import Url.Builder as Url
 import Username exposing (Username)
 
 
 type Page
     = Other
     | Home
-    | Tensor
+    | Repo String
     | Settings
+    | Welcome
 
 
 
 -- VIEW
 
 
-view : Maybe Path -> Page -> { title : String, content : Element msg } -> Browser.Document msg
-view maybepath page { title, content } =
-    { title = title ++ " - Новая Трактовочная сеть"
-    , body =
-        [ layoutWith
-            { options =
-                [ focusStyle
-                    { borderColor = Nothing
-                    , backgroundColor = Nothing
-                    , shadow = Nothing
-                    }
-                ]
-            }
-            [ height fill ]
-          <|
-            row
-                [ width fill
-                , height fill
-                ]
-            <|
-                case maybepath of
-                    Just path ->
-                        viewMenu path page :: [ content ]
-
-                    Nothing ->
-                        [ content ]
-
-        -- el [ centerX, centerY ] <| html Icons.loader
-        ]
-    }
+view : Page -> { title : String, content : Element msg } -> Browser.Document msg
+view page { title, content } =
+    { title = title, body = Layout.toHtml <| row [ width fill, height fill ] (viewMenu page :: [ content ]) }
 
 
-viewMenu : Path -> Page -> Element msg
-viewMenu path page =
+viewMenu : Page -> Element msg
+viewMenu page =
     let
-        linkTo =
-            navbarLink page
+        highlighted route =
+            el
+                [ if isActive page route then
+                    E.alpha 1.0
+
+                  else
+                    E.alpha 0.25
+                ]
+
+        defaultRepos =
+            List.map (\name -> highlighted (Route.Repo name) (Repo.menuLink name)) Repo.list
     in
     column
         [ height fill
@@ -75,49 +61,20 @@ viewMenu path page =
         , padding 10
         , spacing 10
         , Font.size 14
-        , Background.color <| black 0.8
-
-        --, Border.color <| black 0.8
-        --, Border.widthEach { edges | right = 3 }
+        , Background.color <| Colors.black 0.8
         , Border.shadow
             { offset = ( 0, 0 )
             , size = 2
             , blur = 7
-            , color = darkGrey 1.0
+            , color = Colors.darkGrey 1.0
             }
         ]
-        [ linkTo Route.Home
-        , linkTo <| Route.Tensor path
-        , linkTo Route.Settings
-        ]
-
-
-navbarLink : Page -> Route -> Element msg
-navbarLink page route =
-    let
-        ( icon, text ) =
-            case route of
-                Route.Home ->
-                    ( Icons.home, "Домашняя страница" )
-
-                Route.Tensor path ->
-                    ( Icons.grid, "Трактование" )
-
-                Route.Settings ->
-                    ( Icons.settings, "Настройки" )
-    in
-    link
-        [ htmlAttribute <|
-            Html.Attributes.style "color" <|
-                if isActive page route then
-                    "orange"
-
-                else
-                    "white"
-        ]
-        { url = Route.routeToString route
-        , label = html icon
-        }
+    <|
+        List.concat
+            [ [ highlighted Route.Home <| homeLink ]
+            , defaultRepos
+            , [ highlighted Route.Settings <| settingsLink ]
+            ]
 
 
 isActive : Page -> Route -> Bool
@@ -126,14 +83,35 @@ isActive page route =
         ( Home, Route.Home ) ->
             True
 
-        ( Tensor, Route.Tensor _ ) ->
-            True
-
         ( Settings, Route.Settings ) ->
             True
 
+        ( Repo reponame, Route.Repo name ) ->
+            name == reponame
+
         _ ->
             False
+
+
+homeLink : Element msg
+homeLink =
+    menuLink "home" "Домашняя страница" "White" Icons.home
+
+
+settingsLink : Element msg
+settingsLink =
+    menuLink "settings" "Настройки" "White" Icons.settings
+
+
+menuLink : String -> String -> String -> Html msg -> Element msg
+menuLink key title color icon =
+    el [ htmlAttribute <| Html.Attributes.style "color" color ] <|
+        link
+            [ htmlAttribute <| Html.Attributes.title title
+            ]
+            { url = Url.relative [ "#", key ] []
+            , label = el [ width <| px 30 ] <| html icon
+            }
 
 
 
@@ -159,44 +137,3 @@ edges =
     , bottom = 0
     , left = 0
     }
-
-
-
-{-
-   viewPath : Path -> List (Element msg) -> List (Element msg)
-   viewPath path acc =
-       let
-           crumb p =
-               link
-                   [ width <| px 20
-                   , height <| px 20
-                   , spacing 3
-                   , Border.rounded 10
-                   ]
-                   { url = Route.pathToUrl p
-                   , label = text <| Maybe.withDefault "T" <| List.head <| List.reverse <| List.map String.fromInt p.location
-                   }
-       in
-       processPath path crumb []
-
-
-      Render dismissable errors. We use this all over the place!
-      viewErrors : msg -> List String -> Html msg
-      viewErrors dismissErrors errors =
-      if List.isEmpty errors then
-      Html.text ""
-
-          else
-              div
-                  [ class "error-messages"
-                  , style "position" "fixed"
-                  , style "top" "0"
-                  , style "background" "rgb(250, 250, 250)"
-                  , style "padding" "20px"
-                  , style "border" "1px solid"
-                  ]
-              <|
-                  List.map (\error -> p [] [ text error ]) errors
-                      ++ [ button [ onClick dismissErrors ] [ text "Ok" ] ]
-
--}

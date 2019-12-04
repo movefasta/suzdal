@@ -5,7 +5,7 @@ require('./assets/images/loading.svg');
 const { Elm } = require('../elm/Main');
 
 var app = Elm.Main.init({
-    flags: localStorage.getItem('suzdal')
+    flags: localStorage.getItem('session')
 });
 
 initLocalStoragePort(app);
@@ -16,7 +16,8 @@ const storage = window.localStorage || {
   },
   getItem(k) {
     return this[k];
-  }
+  },
+  removeItem(k) {}
 };
 
 function initLocalStoragePort(elmApp) {
@@ -29,6 +30,10 @@ function initLocalStoragePort(elmApp) {
     elmApp.ports.objectRetrieved.send([key, o]);
     console.log("Retrieve Object with key: ", [key, o]);
   });
+  elmApp.ports.removeObject.subscribe(function (key) {
+    removeObject(key);
+    console.log("Removed Object: ", key);
+  });
 };
 
 function storeObject(key, object) {
@@ -38,4 +43,8 @@ function storeObject(key, object) {
 function retrieveObject(key) {
   const value = storage.getItem(key);
   return value ? JSON.parse(value) : null;
+};
+
+function removeObject(key) {
+  storage.removeItem(key);
 };

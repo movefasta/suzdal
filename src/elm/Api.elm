@@ -1,4 +1,4 @@
-port module Api exposing (Hash, addServerError, application, check, cidDecoder, decodeErrors, get, objectRetrieved, pathDecoder, pathEncoder, post, put, retrieveObject, setStorage, settings, storeBookmarks, storeObject, storePath, storePeers, task, viewerChanges)
+port module Api exposing (Hash, addServerError, cidDecoder, decodeErrors, get, jsonToHttpBody, objectRetrieved, pathEncoder, post, put, removeObject, retrieveObject, settings, storeObject, storePeers, storeRepo, storeRepos, task)
 
 {-| This module is responsible for communicating to the IPFS API.
 -}
@@ -17,7 +17,6 @@ import Result exposing (Result)
 import Route exposing (Path)
 import Task
 import Url exposing (Url)
-import Username exposing (Username)
 
 
 type alias Hash =
@@ -25,33 +24,7 @@ type alias Hash =
 
 
 
-{-
-   IPFS ANSWERS
-
-   swarm connect error answer:
-   {"Message":"connect QmPPh4ZvNyuWUW4UjYb27KjgPx4kJcWYnho68QqwZ8Vby1 failure: this action must be run in online    mode, try running 'ipfs daemon' first","Code":0,"Type":"error"}
-
-   swarm connect success answer {"Strings":["connect QmPPh4ZvNyuWUW4UjYb27KjgPx4kJcWYnho68QqwZ8Vby1 success"]}
-
-   name publish answer :
-           {"Name":"QmVYm6HaeccvZGQTqHMFWGN9nZB7LtTHCFkdnASAXW88Wh","Value":"/ipfs/zdpuAyrRA72MNRgBD2HkVtFdDRZu1QpopWXySa7gWedVFaAh3"}
--}
--- PERSISTENCE
-
-
-cidDecoder : Decode.Decoder Hash
-cidDecoder =
-    Decode.at [ "Cid", "/" ] Decode.string
-
-
-
 -- PORTS
-
-
-port setStorage : Maybe Value -> Cmd msg
-
-
-port onStoreChange : (Value -> msg) -> Sub msg
 
 
 port storeObject : ( String, Value ) -> Cmd msg
@@ -63,29 +36,32 @@ port retrieveObject : String -> Cmd msg
 port objectRetrieved : (( String, Value ) -> msg) -> Sub msg
 
 
-viewerChanges : (Path -> msg) -> Decoder Path -> Sub msg
-viewerChanges toMsg decoder =
+port removeObject : String -> Cmd msg
+
+
+
+-- PORTS HELPERS
+
+
+recieveLocalStorageObject : (a -> msg) -> Decoder a -> a -> Sub msg
+recieveLocalStorageObject msg dec default =
     let
-        decodeFromChange dec val =
-            case Decode.decodeValue dec val of
-                Ok path ->
-                    path
+        result json =
+            case Decode.decodeValue dec json of
+                Ok m ->
+                    m
 
                 Err _ ->
-                    { cid = "", location = [] }
+                    default
+
+        retrieval ( _, json ) =
+            msg (result json)
     in
-    onStoreChange (\value -> toMsg (decodeFromChange decoder value))
+    objectRetrieved retrieval
 
 
 
 -- SERIALIZATION
-
-
-pathDecoder : Decoder Path
-pathDecoder =
-    Decode.succeed Path
-        |> requiredAt [ "path", "cid" ] Decode.string
-        |> requiredAt [ "path", "location" ] (Decode.list Decode.int)
 
 
 pathEncoder : Path -> Value
@@ -98,50 +74,6 @@ pathEncoder path =
                 ]
           )
         ]
-
-
-
--- APPLICATION
-
-
-application :
-    Decoder Path
-    ->
-        { init : Maybe Path -> Url -> Nav.Key -> ( model, Cmd msg )
-        , onUrlChange : Url -> msg
-        , onUrlRequest : Browser.UrlRequest -> msg
-        , subscriptions : model -> Sub msg
-        , update : msg -> model -> ( model, Cmd msg )
-        , view : model -> Browser.Document msg
-        }
-    -> Program Value model msg
-application dec config =
-    let
-        init flags url navKey =
-            case decode dec flags of
-                Ok path ->
-                    config.init (Just path) url navKey
-
-                Err _ ->
-                    config.init Nothing url navKey
-    in
-    Browser.application
-        { init = init
-        , onUrlChange = config.onUrlChange
-        , onUrlRequest = config.onUrlRequest
-        , subscriptions = config.subscriptions
-        , update = config.update
-        , view = config.view
-        }
-
-
-decode : Decoder Path -> Value -> Result Decode.Error Path
-decode decoder value =
-    -- It's stored in localStorage as a JSON String;
-    -- first decode the Value as a String, then
-    -- decode that String as JSON.
-    Decode.decodeValue Decode.string value
-        |> Result.andThen (\str -> Decode.decodeString decoder str)
 
 
 
@@ -186,50 +118,14 @@ task method url body decoder =
         }
 
 
-check : Url -> Task.Task Http.Error Hash
-check url =
-    let
-        node hash =
-            Encode.object
-                [ ( "cid", Encode.object [ ( "/", Encode.string hash ) ] )
-                , ( "description", Encode.string "Кругозор" )
-                , ( "links", Encode.object [ ( "/", Encode.string hash ) ] )
-                , ( "name", Encode.string "0" )
-                , ( "size", Encode.int 0 )
-                , ( "color", Encode.int 0 )
-                ]
-                |> jsonToBody
-
-        emptyListBody =
-            Encode.list Encode.int []
-                |> jsonToBody
-    in
-    task "POST" (Endpoint.dagPut url) emptyListBody cidDecoder
-        |> Task.andThen (\cid -> task "POST" (Endpoint.dagPut url) (node cid) cidDecoder)
-
-
 put : Url -> Value -> (Result Http.Error Hash -> msg) -> Cmd msg
 put url value trigger =
-    post (Endpoint.dagPut url) (jsonToBody value) trigger
-
-
-jsonToBody : Value -> Http.Body
-jsonToBody value =
-    Http.multipartBody
-        [ turnToBytesPart "whatever" "application/json" value ]
+    post (Endpoint.dagPut url) (jsonToHttpBody value) trigger
 
 
 settings : Url -> Http.Body -> (Result Http.Error Hash -> msg) -> Cmd msg
 settings url body trigger =
     post (Endpoint.dagPut url) body trigger
-
-
-turnToBytesPart : String -> String -> Encode.Value -> Http.Part
-turnToBytesPart message mime json =
-    Encode.encode 0 json
-        |> Bytes.Encode.string
-        |> Bytes.Encode.encode
-        |> Http.bytesPart message mime
 
 
 
@@ -279,6 +175,11 @@ decodeErrors error =
             [ "Server error" ]
 
 
+cidDecoder : Decode.Decoder Hash
+cidDecoder =
+    Decode.at [ "Cid", "/" ] Decode.string
+
+
 errorsDecoder : Decoder (List String)
 errorsDecoder =
     Decode.keyValuePairs (Decode.list Decode.string)
@@ -290,6 +191,20 @@ fromPair ( field, errors ) =
     List.map (\error -> field ++ " " ++ error) errors
 
 
+jsonToHttpBody : Value -> Http.Body
+jsonToHttpBody value =
+    Http.multipartBody
+        [ turnToBytesPart "whatever" "application/json" value ]
+
+
+turnToBytesPart : String -> String -> Encode.Value -> Http.Part
+turnToBytesPart message mime json =
+    Encode.encode 0 json
+        |> Bytes.Encode.string
+        |> Bytes.Encode.encode
+        |> Http.bytesPart message mime
+
+
 
 -- LOCALSTORAGE FUNCTIONS
 
@@ -299,18 +214,18 @@ storePeers value =
     storeObject ( peersStorageKey, value )
 
 
-storePath : Path -> Cmd msg
-storePath path =
-    storeObject ( pathStorageKey, pathEncoder path )
+storeRepo : String -> Encode.Value -> Cmd msg
+storeRepo key value =
+    storeObject ( key, value )
 
 
-storeBookmarks : Encode.Value -> Cmd msg
-storeBookmarks value =
-    storeObject ( bookmarksStorageKey, value )
+storeRepos : Encode.Value -> Cmd msg
+storeRepos value =
+    storeObject ( reposStorageKey, value )
 
 
-settingsBookmarks : Encode.Value -> Cmd msg
-settingsBookmarks value =
+storeSettings : Encode.Value -> Cmd msg
+storeSettings value =
     storeObject ( settingsStorageKey, value )
 
 
@@ -333,6 +248,6 @@ bookmarksStorageKey =
     "bookmarks"
 
 
-pathStorageKey : String
-pathStorageKey =
-    "suzdal"
+reposStorageKey : String
+reposStorageKey =
+    "repos"

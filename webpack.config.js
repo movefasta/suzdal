@@ -31,7 +31,11 @@ var common = {
             template: "src/static/index.html",
             // inject details of output file at end of body
             inject: "body"
-        })
+        }),
+        new CopyWebpackPlugin([
+                'package.json',
+                'CHANGELOG.md'
+            ])
     ],
     resolve: {
         modules: [path.join(__dirname, "src"), "node_modules"],
@@ -135,7 +139,9 @@ if (MODE === "production") {
             new CopyWebpackPlugin([
                 {
                     from: "src/static/assets"
-                }
+                },
+                'package.json',
+                'CHANGELOG.md'
             ]),
             new MiniCssExtractPlugin({
                 // Options similar to the same options in webpackOptions.output
