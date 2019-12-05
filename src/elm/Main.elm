@@ -1,37 +1,22 @@
 module Main exposing (main)
 
-import Api exposing (Hash)
-import Avatar exposing (Avatar)
 import Browser exposing (Document)
 import Browser.Navigation as Nav
-import Dict
-import Element as E exposing (..)
-import Element.Background as Background
-import Element.Border as Border
-import Element.Events as Event
-import Element.Font as Font
-import Element.Input as Input
-import Element.Lazy exposing (lazy, lazy2)
-import Html exposing (Html)
-import Http
+import Element exposing (..)
+import Html
 import Json.Decode as Decode exposing (Value)
-import Json.Encode as Encode
-import Loading
 import Page exposing (Page)
-import Page.Blank as Blank
 import Page.Home as Home
 import Page.NotFound as NotFound
 import Page.Repo as Repo
 import Page.Settings as Settings
 import Page.Welcome as Welcome
 import Repo exposing (Repo)
-import Result exposing (Result)
-import Route exposing (Route)
+import Result
+import Route
 import Session exposing (Session)
-import Time
 import UI.Layout as Layout
 import Url exposing (Url)
-import Username exposing (Username)
 
 
 type alias Model =
@@ -118,18 +103,21 @@ view model =
 
 type Msg
     = Ignored
-      --    | GotAuthor (Result Http.Error Repo.Author)
     | ChangedUrl Url
     | ClickedLink Browser.UrlRequest
     | GotHomeMsg Home.Msg
     | GotSettingsMsg Settings.Msg
     | GotRepoMsg Repo.Msg
     | GotWelcomeMsg Welcome.Msg
-    | GotRepos (Result Http.Error (List Repo))
+
+
+
+--    | GotAuthor (Result Http.Error Repo.Author)
+--    | GotRepos (Result Http.Error (List Repo))
 
 
 toSession : Model -> Session
-toSession { key, page } =
+toSession { page } =
     case page of
         NotFound session ->
             session
@@ -140,7 +128,7 @@ toSession { key, page } =
         Settings settings ->
             Settings.toSession settings
 
-        Repo name repo ->
+        Repo _ repo ->
             Repo.toSession repo
 
         Welcome welcome ->
@@ -183,20 +171,19 @@ update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         {- GotAuthor (Ok author) ->
-               ( model
-               , Cmd.none
-                 --Api.get (Endpoint.filesRead host "/suzdal/settings.json") GotRepos Repo.authorDecoder
-               )
+                  ( model
+                  , Cmd.none
+                    --Api.get (Endpoint.filesRead host "/suzdal/settings.json") GotRepos Repo.authorDecoder
+                  )
 
-           GotAuthor (Err _) ->
-               ( Model navKey (Welcome { session = session, name = "", email = "" }), Cmd.none )
+              GotAuthor (Err _) ->
+                  ( Model navKey (Welcome { session = session, name = "", email = "" }), Cmd.none )
+           GotRepos (Ok repos) ->
+               ( model, Cmd.batch [ Route.replaceUrl model.key Route.Home ] )
+
+           GotRepos (Err _) ->
+               ( model, Cmd.none )
         -}
-        GotRepos (Ok repos) ->
-            ( model, Cmd.batch [ Route.replaceUrl model.key Route.Home ] )
-
-        GotRepos (Err e) ->
-            ( model, Cmd.none )
-
         Ignored ->
             ( model, Cmd.none )
 

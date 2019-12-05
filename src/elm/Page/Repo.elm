@@ -6,14 +6,13 @@ import Api.Endpoint as Endpoint exposing (Endpoint)
 import Browser.Dom as Dom
 import Browser.Events as Events
 import Content exposing (Content, Link, Status(..), addText, contentEncoder, contentSize)
-import Dict exposing (Dict)
+import Dict
 import Element as E exposing (..)
 import Element.Background as Background
 import Element.Border as Border
 import Element.Events as Event
 import Element.Font as Font
 import Element.Input as Input
-import Element.Lazy exposing (lazy, lazy2)
 import File exposing (File)
 import File.Download
 import Filesize
@@ -21,17 +20,13 @@ import Html
 import Html.Attributes
 import Http
 import Json.Decode as Decode
-import Json.Decode.Extra as DecodeExtra exposing (parseInt)
-import Json.Decode.Pipeline exposing (hardcoded, optional, required)
 import Json.Encode as Encode
 import List.Extra
 import Loading exposing (spinner)
 import MimeType as Mime
-import Page
-import Process
 import Repo exposing (Changes, Commit, Node, Repo, ipldNodeEncoder, nodeDecoder)
 import Result exposing (Result)
-import Route exposing (Path, Route)
+import Route exposing (Path)
 import Session exposing (Session)
 import Task exposing (Task)
 import Time
@@ -128,21 +123,12 @@ type Remote a
     | Loading
     | LoadingSlowly
     | Success a
-    | Failed
 
 
 type Action
     = Remove Link
     | Set Link
     | Move Link Int
-    | RemoveAll
-
-
-type alias Entry =
-    { time : Time.Posix
-    , zone : Time.Zone
-    , diff : Diff
-    }
 
 
 type alias Diff =
@@ -179,10 +165,8 @@ type Msg
     | Perform Node Action
     | DragEnter
     | DragLeave
-    | GotSession Session.Session
     | AddTree (List Int) (Result Http.Error (Tree Node))
     | ClearNotifications
-    | AddBookmark Path String
     | GotDAG (Result Http.Error DAG)
     | GotLog (Result Http.Error (List Commit))
     | Append DAG
@@ -198,6 +182,7 @@ type Msg
 
 
 
+--| AddBookmark Path String
 --| UpdateContent Content (Result Http.Error Content)
 --| RetrieveLocalStorageRepos
 --| GotRepo (Result Decode.Error Repo)
@@ -295,14 +280,13 @@ update msg model =
             , checkNodeForChanges url repo.tree node
             )
 
-        UpdateParent parent (Err _) ->
-            ( { model | notifications = [ ServerError "Ошибка при обновлении поля links у родителя (UpdateParent)" ] }, Cmd.none )
+        UpdateParent _ (Err _) ->
+            ( { model | notifications = [ ServerError <| "Ошибка при обновлении поля links у родителя (UpdateParent) " ] }
+            , Cmd.none
+            )
 
         Append zipper ->
             let
-                label =
-                    Zipper.label zipper
-
                 child =
                     newChild zipper
 
@@ -316,9 +300,6 @@ update msg model =
               }
             , Cmd.none
             )
-
-        AddBookmark path string ->
-            ( { model | notifications = [] }, Cmd.none )
 
         KeyDowns code (Success zipper) ->
             let
@@ -367,7 +348,7 @@ update msg model =
                 ]
             )
 
-        NodeChanged node (Err _) ->
+        NodeChanged _ (Err _) ->
             ( model, Cmd.none )
 
         GotUpdatedContentHash node (Ok cid) ->
@@ -465,7 +446,7 @@ update msg model =
             in
             ( { model | zipper = updateRemote replace model.zipper }, Cmd.none )
 
-        AddTree to (Err _) ->
+        AddTree _ (Err _) ->
             ( { model | notifications = [ ServerError "Не удалось загрузить дерево. Попробуйте ещё раз" ] }, Cmd.none )
 
         RecursivePin node ->
@@ -584,9 +565,6 @@ update msg model =
                 ]
             )
 
-        GotSession _ ->
-            ( model, Cmd.none )
-
         Perform node action ->
             let
                 mapFun =
@@ -602,9 +580,9 @@ update msg model =
                         Set link ->
                             List.Extra.setAt link.id link
 
-                        RemoveAll ->
-                            List.filter (\a -> False)
-
+                {- RemoveAll ->
+                   List.filter (\a -> False)
+                -}
                 links =
                     case model.content of
                         Success content ->
@@ -754,15 +732,15 @@ viewMetaData repo =
         ]
 
 
-viewChanges : List Int -> Changes -> Element Msg
-viewChanges location changes =
+viewChanges : Changes -> Element Msg
+viewChanges changes =
     if Dict.isEmpty changes then
         none
 
     else
         row [ spacing 15, Font.size 12 ]
             [ el [] <| text "Список изменённых ячеек"
-            , wrappedRow [ spacing 7 ] <| List.map (\( k, v ) -> viewCrumbAsButton location v) <| Dict.toList changes
+            , wrappedRow [ spacing 7 ] <| List.map (\( k, v ) -> viewCrumbAsButton k v) <| Dict.toList changes
             ]
 
 
@@ -821,7 +799,7 @@ viewDAG model dag =
 
         haveParent z =
             case Zipper.removeTree z of
-                Just parent ->
+                Just _ ->
                     True
 
                 Nothing ->
@@ -847,7 +825,7 @@ viewDAG model dag =
                 |> List.map
                     (row [ width fill, height fill, spacing 5 ] << List.map isCrumb)
                 |> column [ width fill, spacing 5 ]
-            , viewNodeProps model.repo.tree focus model.session.settings.shownodeprops
+            , viewNodeProps focus model.session.settings.shownodeprops
             ]
         , column
             [ alignTop, spacing 10 ]
@@ -1038,8 +1016,8 @@ viewCell node =
                 [ text node.description ]
 
 
-viewNodeProps : Hash -> Node -> Bool -> Element Msg
-viewNodeProps root node show =
+viewNodeProps : Node -> Bool -> Element Msg
+viewNodeProps node show =
     let
         inputStyle =
             [ width fill
@@ -1716,40 +1694,9 @@ nodeToTree =
 -- decode links field as ipld-link
 
 
-ipldLinkDecoder : Decode.Decoder Hash
-ipldLinkDecoder =
-    Decode.at [ "links", "/" ] Decode.string
-
-
 keyDecoder : Decode.Decoder String
 keyDecoder =
     Decode.field "key" Decode.string
-
-
-hslSlider : Float -> Element Msg
-hslSlider hue =
-    Input.slider
-        [ height (px 30)
-        , behindContent
-            (el
-                [ width fill
-                , height (px 2)
-                , centerY
-                , Background.color <| lightGrey 1.0
-                , Border.rounded 2
-                ]
-                none
-            )
-        ]
-        { onChange = \_ -> NoOp
-        , label = Input.labelAbove [] <| text <| "Цветовой регулятор ( " ++ String.fromFloat hue ++ " )"
-        , min = 0
-        , max = 59.9999999
-        , step = Nothing
-        , value = hue
-        , thumb =
-            Input.defaultThumb
-        }
 
 
 colorCodeConverter : Int -> Float -> Float -> Color
@@ -1802,29 +1749,31 @@ simpleColorCodeConverter i alpha =
 -- HELPERS
 
 
-index : List { a | id : Int } -> List { a | id : Int }
-index =
-    List.indexedMap (\i a -> { a | id = i })
+pathlist : Path -> List Path
+pathlist path =
+    processPath { path | location = List.reverse path.location } (\x -> x) []
+
+
+
+-- helper function - convert single path [0,1,2] to list of paths [[0], [0,1], [0,1,2]]
+
+
+processPath : Path -> (Path -> a) -> List a -> List a
+processPath path fun acc =
+    case path.location of
+        x :: xs ->
+            processPath
+                { path | location = xs }
+                fun
+                (fun { path | location = List.reverse (x :: xs) } :: acc)
+
+        [] ->
+            acc
 
 
 expandFocus : Tree Node -> Tree Node
 expandFocus =
     Tree.mapLabel (\label -> { label | expanded = not label.expanded })
-
-
-pathlist : Path -> List Path
-pathlist path =
-    Page.processPath { path | location = List.reverse path.location } (\x -> x) []
-
-
-navigateZipper : (DAG -> Maybe DAG) -> DAG -> DAG
-navigateZipper fun zipper =
-    case fun zipper of
-        Just new ->
-            new
-
-        Nothing ->
-            zipper
 
 
 addPathsToTree : DAG -> DAG
@@ -1919,7 +1868,7 @@ getContexts zipper acc =
             getContexts parent appendChildren
 
         Nothing ->
-            [ [ Zipper.label zipper ] ] ++ appendChildren
+            [ Zipper.label zipper ] :: appendChildren
 
 
 keyAction : String -> DAG -> DAG

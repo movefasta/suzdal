@@ -7,7 +7,6 @@ all of them. One source of truth!
 
 -}
 
-import Api.Endpoint as Endpoint
 import Element exposing (..)
 
 

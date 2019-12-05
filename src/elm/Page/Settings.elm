@@ -5,41 +5,32 @@ import Api.Endpoint as Endpoint
 import Api.NodeConfig exposing (IpfsNodeConfig)
 import Api.RepoStat exposing (RepoStat)
 import Api.SwarmPeers exposing (SwarmPeers)
-import Avatar
-import Browser.Dom as Dom
-import Browser.Events
-import Browser.Navigation as Nav
-import Dict exposing (Dict)
-import Element as E exposing (..)
+import Element exposing (..)
 import Element.Background as Background
 import Element.Border as Border
 import Element.Events as Event
 import Element.Font as Font
 import Element.Input as Input
-import Element.Lazy as Lazy exposing (lazy)
 import Email exposing (Email)
 import Filesize
-import Html
 import Html.Attributes
 import Html.Events as HtmlEvents
 import Http
-import Json.Decode as Decode exposing (Decoder, decodeString, field, list, string)
+import Json.Decode as Decode exposing (Decoder, field, list, string)
 import Json.Decode.Pipeline exposing (hardcoded, optional, required)
 import Json.Encode as Encode
 import List.Extra
-import Loading
 import Log
 import Process
 import Repo exposing (Author)
-import Route
 import Session exposing (Session, Settings)
 import Task
 import Time
-import UI.Button as Button exposing (button)
-import UI.Colors as Colors
+import UI.Button as Button
+import UI.Colors as Colors exposing (..)
 import UI.Icons as Icons
 import Url exposing (Url)
-import Username as Username exposing (Username)
+import Username exposing (Username)
 
 
 init : Session -> ( Model, Cmd Msg )
@@ -157,14 +148,6 @@ type Connection
 type SwarmStatus
     = InSwarm
     | OutOfSwarm
-
-
-type alias Profile =
-    { id : Hash
-    , name : String
-    , avatar : Hash
-    , desciption : String
-    }
 
 
 type Status a
@@ -779,19 +762,30 @@ viewID id =
         ]
 
 
-checkPeer : String -> Url -> Peer -> Cmd Msg
-checkPeer relay url peer =
-    case peer.connection of
-        Pending ->
-            Cmd.none
-
-        _ ->
-            Api.get (Endpoint.connect url peer.hash relay) (GotPeerStatus peer.id) (Decode.field "Strings" <| Decode.succeed "Ok")
-
-
-checkSwarmPeers : Url -> Cmd Msg
-checkSwarmPeers host =
-    Api.get (Endpoint.swarmPeers host) GotSwarmPeers Api.SwarmPeers.decoder
+hslSlider : Float -> Element Msg
+hslSlider hue =
+    Input.slider
+        [ height (px 30)
+        , behindContent
+            (el
+                [ width fill
+                , height (px 2)
+                , centerY
+                , Background.color <| lightGrey 1.0
+                , Border.rounded 2
+                ]
+                none
+            )
+        ]
+        { onChange = \_ -> NoOp
+        , label = Input.labelAbove [] <| text <| "Цветовой регулятор ( " ++ String.fromFloat hue ++ " )"
+        , min = 0
+        , max = 59.9999999
+        , step = Nothing
+        , value = hue
+        , thumb =
+            Input.defaultThumb
+        }
 
 
 
@@ -1082,6 +1076,21 @@ updateConnection swarm peer =
 
 
 -- HTTP
+
+
+checkPeer : String -> Url -> Peer -> Cmd Msg
+checkPeer relay url peer =
+    case peer.connection of
+        Pending ->
+            Cmd.none
+
+        _ ->
+            Api.get (Endpoint.connect url peer.hash relay) (GotPeerStatus peer.id) (Decode.field "Strings" <| Decode.succeed "Ok")
+
+
+checkSwarmPeers : Url -> Cmd Msg
+checkSwarmPeers host =
+    Api.get (Endpoint.swarmPeers host) GotSwarmPeers Api.SwarmPeers.decoder
 
 
 {-| This takes a Valid Form as a reminder that it needs to have been validated

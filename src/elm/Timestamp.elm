@@ -1,7 +1,6 @@
 module Timestamp exposing (format, view)
 
 import Element exposing (Element, text)
-import Json.Decode as Decode exposing (Decoder, fail, succeed)
 import Time exposing (Month(..))
 
 

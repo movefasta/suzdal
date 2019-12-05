@@ -1,15 +1,11 @@
 module Session exposing (Session, Settings, default, getRepo, removeRepo, sessionDecoder, settingsDecoder, store, updateAuthor, updateRepo, updateSettings)
 
 import Api
-import Avatar exposing (Avatar)
-import Browser.Navigation as Nav
 import Dict exposing (Dict)
 import Json.Decode as Decode exposing (Decoder)
-import Json.Decode.Pipeline exposing (custom, hardcoded, required, requiredAt)
-import Json.Encode as Encode exposing (Value)
-import Repo exposing (Author, Node, Repo)
-import Route exposing (Path)
-import Time
+import Json.Decode.Pipeline exposing (hardcoded, required)
+import Json.Encode as Encode
+import Repo exposing (Author, Repo)
 import Url exposing (Url)
 
 

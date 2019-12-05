@@ -1,36 +1,18 @@
 module Page.Home exposing (Msg, init, subscriptions, update, view)
 
-import Api exposing (Hash)
-import Api.Endpoint as Endpoint
-import Dict exposing (Dict)
-import Element as E exposing (..)
+import Api
+import Dict
+import Element exposing (..)
 import Element.Background as Background
 import Element.Border as Border
 import Element.Events as Event
 import Element.Font as Font
 import Element.Input as Input
-import Email exposing (Email)
-import File
-import File.Select
-import Html
-import Iso8601
-import Json.Decode as Decode exposing (Decoder)
-import Json.Decode.Pipeline as Pipeline exposing (optional, required, requiredAt)
-import Json.Encode as Encode exposing (Value)
-import List.Extra
-import Loading
-import Log
-import PaginatedList exposing (PaginatedList)
-import Process
-import Repo exposing (Repo, repoDecoder, reposEncoder)
-import Route exposing (Path)
+import Repo exposing (Repo)
 import Session exposing (Session)
-import Task exposing (Task)
-import Time
 import UI.Button as Button
 import UI.Colors as Colors exposing (..)
 import UI.Fonts
-import UI.Icons as Icons
 
 
 
@@ -102,13 +84,6 @@ view model =
         [ el [] <| el UI.Fonts.title <| text "Список репозиториев"
         , wrappedRow [ paddingXY 40 10 ] <| Dict.values <| Dict.map viewRepo model.repos
         ]
-
-
-viewRepoControls : Element Msg
-viewRepoControls =
-    column
-        [ alignTop, spacing 10 ]
-        []
 
 
 viewRepo : String -> Repo -> Element Msg

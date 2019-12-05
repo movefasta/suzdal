@@ -1,6 +1,6 @@
 module Page.Blank exposing (view)
 
-import Element as E exposing (..)
+import Element exposing (..)
 
 
 view : { title : String, content : Element msg }

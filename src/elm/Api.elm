@@ -1,17 +1,12 @@
-port module Api exposing (Hash, addServerError, cidDecoder, decodeErrors, get, jsonToHttpBody, objectRetrieved, pathEncoder, post, put, removeObject, retrieveObject, settings, storeObject, storePeers, storeRepo, storeRepos, task)
+port module Api exposing (Hash, addServerError, cidDecoder, decodeErrors, get, jsonToHttpBody, objectRetrieved, pathEncoder, post, put, removeObject, retrieveObject, settings, storeObject, storePeers, task)
 
 {-| This module is responsible for communicating to the IPFS API.
 -}
 
 import Api.Endpoint as Endpoint exposing (Endpoint)
-import Avatar exposing (Avatar)
-import Browser
-import Browser.Navigation as Nav
-import Bytes
 import Bytes.Encode
-import Http exposing (Body, Expect)
-import Json.Decode as Decode exposing (Decoder, Value, decodeString, field, string)
-import Json.Decode.Pipeline as Pipeline exposing (optional, required, requiredAt)
+import Http exposing (Body)
+import Json.Decode as Decode exposing (Decoder, Value, decodeString, string)
 import Json.Encode as Encode
 import Result exposing (Result)
 import Route exposing (Path)
@@ -37,27 +32,6 @@ port objectRetrieved : (( String, Value ) -> msg) -> Sub msg
 
 
 port removeObject : String -> Cmd msg
-
-
-
--- PORTS HELPERS
-
-
-recieveLocalStorageObject : (a -> msg) -> Decoder a -> a -> Sub msg
-recieveLocalStorageObject msg dec default =
-    let
-        result json =
-            case Decode.decodeValue dec json of
-                Ok m ->
-                    m
-
-                Err _ ->
-                    default
-
-        retrieval ( _, json ) =
-            msg (result json)
-    in
-    objectRetrieved retrieval
 
 
 
@@ -171,7 +145,7 @@ decodeErrors error =
         Http.BadStatus _ ->
             [ "Server error" ]
 
-        err ->
+        _ ->
             [ "Server error" ]
 
 
@@ -214,21 +188,6 @@ storePeers value =
     storeObject ( peersStorageKey, value )
 
 
-storeRepo : String -> Encode.Value -> Cmd msg
-storeRepo key value =
-    storeObject ( key, value )
-
-
-storeRepos : Encode.Value -> Cmd msg
-storeRepos value =
-    storeObject ( reposStorageKey, value )
-
-
-storeSettings : Encode.Value -> Cmd msg
-storeSettings value =
-    storeObject ( settingsStorageKey, value )
-
-
 
 -- LOCALSTORAGE KEYS
 
@@ -238,16 +197,22 @@ peersStorageKey =
     "peers"
 
 
-settingsStorageKey : String
-settingsStorageKey =
-    "settings"
 
+-- PORTS HELPERS
+{-
+   recieveLocalStorageObject : (a -> msg) -> Decoder a -> a -> Sub msg
+   recieveLocalStorageObject msg dec default =
+       let
+           result json =
+               case Decode.decodeValue dec json of
+                   Ok m ->
+                       m
 
-bookmarksStorageKey : String
-bookmarksStorageKey =
-    "bookmarks"
+                   Err _ ->
+                       default
 
-
-reposStorageKey : String
-reposStorageKey =
-    "repos"
+           retrieval ( _, json ) =
+               msg (result json)
+       in
+       objectRetrieved retrieval
+-}

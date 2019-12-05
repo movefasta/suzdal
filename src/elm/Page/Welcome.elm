@@ -1,26 +1,19 @@
 module Page.Welcome exposing (Model, Msg, init, subscriptions, toSession, update, view)
 
-import Api exposing (Hash)
+import Api
 import Api.Endpoint as Endpoint
-import Element as E exposing (..)
-import Element.Background as Background
+import Element exposing (..)
 import Element.Border as Border
 import Element.Events as Event
 import Element.Font as Font
 import Element.Input as Input
-import Email exposing (Email)
-import Html exposing (Html)
 import Http
-import Json.Decode as Decode exposing (Decoder)
-import Json.Decode.Pipeline as Pipeline exposing (optional, required, requiredAt)
-import Json.Encode as Encode exposing (Value)
 import Loading
 import Repo exposing (Author)
 import Route
 import Session exposing (Session)
 import UI.Button as Button
 import UI.Colors exposing (..)
-import UI.Icons as Icons
 import Url exposing (Url)
 
 
@@ -161,7 +154,7 @@ view model =
 
 
 subscriptions : Model -> Sub Msg
-subscriptions model =
+subscriptions _ =
     Sub.none
 
 

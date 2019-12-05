@@ -1,11 +1,8 @@
 module Route exposing (Path, Route(..), fromUrl, locationToString, pathToUrl, replaceUrl, routeToString)
 
 import Browser.Navigation as Nav
-import Html exposing (Attribute, Html)
-import Html.Attributes as Attr
 import Url exposing (Url)
 import Url.Parser as Parser exposing ((</>), Parser, oneOf, s, string)
-import Username exposing (Username)
 
 
 type Route

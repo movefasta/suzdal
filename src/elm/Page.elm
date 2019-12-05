@@ -1,18 +1,13 @@
-module Page exposing (Page(..), processPath, view)
+module Page exposing (Page(..), view)
 
-import Api
-import Avatar
-import Browser exposing (Document)
+import Browser
 import Element as E exposing (..)
 import Element.Background as Background
 import Element.Border as Border
-import Element.Events as Event
 import Element.Font as Font
-import Element.Input as Input
-import Element.Lazy exposing (lazy, lazy2)
 import Html exposing (Html)
 import Html.Attributes
-import Json.Decode as Decode
+import Json.Decode
 import Repo
 import Route exposing (Path, Route)
 import Session exposing (Session)
@@ -20,7 +15,6 @@ import UI.Colors as Colors
 import UI.Icons as Icons
 import UI.Layout as Layout
 import Url.Builder as Url
-import Username exposing (Username)
 
 
 type Page
@@ -37,7 +31,7 @@ type Page
 
 view : Page -> { title : String, content : Element msg } -> Browser.Document msg
 view page { title, content } =
-    { title = title, body = Layout.toHtml <| row [ width fill, height fill ] (viewMenu page :: [ content ]) }
+    { title = title, body = Layout.toHtml <| row [ width fill, height fill ] [ viewMenu page, content ] }
 
 
 viewMenu : Page -> Element msg
@@ -113,23 +107,6 @@ menuLink key title color icon =
             { url = Url.relative [ "#", key ] []
             , label = el [ width <| px 30 ] <| html icon
             }
-
-
-
--- helper function - convert single path [0,1,2] to list of paths [[0], [0,1], [0,1,2]]
-
-
-processPath : Path -> (Path -> a) -> List a -> List a
-processPath path fun acc =
-    case path.location of
-        x :: xs ->
-            processPath
-                { path | location = xs }
-                fun
-                ([ fun { path | location = List.reverse (x :: xs) } ] ++ acc)
-
-        [] ->
-            acc
 
 
 edges =

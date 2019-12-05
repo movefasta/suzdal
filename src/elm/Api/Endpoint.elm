@@ -1,13 +1,11 @@
 module Api.Endpoint exposing (Endpoint, add, changeLog, config, configSet, connect, content, dagGet, dagPut, file, filesRead, filesWrite, getContent, getInitRepos, id, node, pinAdd, pinLs, publish, repoStat, request, resolve, swarmPeers, task, unwrap)
 
-import CommentId exposing (CommentId)
 import Http
 import Json.Encode as Encode
-import Route exposing (Path)
+import Route
 import Task
 import Url exposing (Url)
 import Url.Builder exposing (QueryParameter)
-import Username exposing (Username)
 
 
 

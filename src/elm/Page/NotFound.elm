@@ -1,7 +1,6 @@
 module Page.NotFound exposing (view)
 
-import Asset
-import Element as E exposing (..)
+import Element exposing (..)
 
 
 
