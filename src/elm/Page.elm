@@ -50,6 +50,7 @@ viewMenu page =
 
                   else
                     E.alpha 0.25
+                , mouseOver [ E.alpha 1.0 ]
                 ]
 
         defaultRepos =
