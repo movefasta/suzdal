@@ -1,4 +1,4 @@
-module Asset exposing (Image, defaultAvatar, error, loading, logo, src)
+module Asset exposing (Image, defaultAvatar, dots, error, loading, logo, src)
 
 {-| Assets, such as images, videos, and audio. (We only have images for now.)
 
@@ -26,6 +26,11 @@ error =
 loading : Image
 loading =
     image "loading.svg"
+
+
+dots : Image
+dots =
+    image "three-dots.svg"
 
 
 defaultAvatar : Image
