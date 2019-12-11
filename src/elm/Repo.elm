@@ -259,6 +259,7 @@ ipldNodeEncoder node =
         , ( "name", Encode.string node.name )
         , ( "size", Encode.int node.size )
         , ( "color", Encode.int node.color )
+        , ( "location", Encode.list Encode.int node.location )
         ]
 
 
@@ -320,7 +321,7 @@ nodeDecoder =
         |> optional "size" Decode.int 0
         |> optional "description" Decode.string ""
         |> optional "color" Decode.int 0
-        |> hardcoded []
+        |> optional "location" (Decode.list Decode.int) []
         |> hardcoded False
 
 
