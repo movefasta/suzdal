@@ -251,6 +251,18 @@ ipldLinkEncoder hash =
     Encode.object [ ( "/", Encode.string hash ) ]
 
 
+nodeEncoderForLocalStorage : Node -> Encode.Value
+nodeEncoderForLocalStorage node =
+    Encode.object
+        [ ( "cid", Encode.object [ ( "/", Encode.string node.cid ) ] )
+        , ( "description", Encode.string node.description )
+        , ( "links", Encode.object [ ( "/", Encode.string node.links ) ] )
+        , ( "name", Encode.string node.name )
+        , ( "size", Encode.int node.size )
+        , ( "color", Encode.int node.color )
+        ]
+
+
 ipldNodeEncoder : Node -> Encode.Value
 ipldNodeEncoder node =
     Encode.object
