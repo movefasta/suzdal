@@ -24,7 +24,7 @@ import Json.Encode as Encode
 import List.Extra
 import Loading exposing (spinner)
 import MimeType as Mime
-import Repo exposing (Changes, Commit, Node, Repo, ipldNodeEncoder, nodeDecoder)
+import Repo exposing (Changes, Commit, Node, Remote(..), Repo, ipldNodeEncoder, nodeDecoder)
 import Result exposing (Result)
 import Route exposing (Path)
 import Session exposing (Session)
@@ -76,12 +76,13 @@ init key repo session =
       , notifications = []
       , hover = False
       , utc = Time.utc
+      , showchanges = False
 
       --, style = Animation.style [ Animation.opacity 0.0 ]
       }
     , Cmd.batch
         [ Task.perform (\_ -> PassedSlowLoadThreshold) Loading.slowThreshold
-        , fetchDAG session.url { cid = repo.tree, location = repo.location }
+        , fetchDAGwithNewNodes session.url { cid = repo.tree, location = repo.location } repo.unsaved
         , case repo.head of
             Just head ->
                 Task.attempt GotLog <| fetchHistory 10 session.url head []
@@ -90,6 +91,15 @@ init key repo session =
                 Cmd.none
         , Task.attempt GotZone Time.here
 
+        --, fetchDAG session.url { cid = repo.tree, location = repo.location }
+        --, fetchWholeDAG session.url repo.tree
+        --, if repo.zipper == NotAsked then
+        --    Api.task "GET" (Endpoint.dagGet session.url repo.tree) Http.emptyBody nodeDecoder
+        --        |> Task.andThen (getChildren session.url)
+        --        |> Task.andThen (Task.succeed << Zipper.fromTree)
+        --        |> Task.attempt GotDAG
+        --  else
+        --    Cmd.none
         --, Process.sleep 0 |> Task.perform (\_ -> RetrieveLocalStorageRepos)
         ]
     )
@@ -109,6 +119,7 @@ type alias Model =
     , content : Remote Content
     , log : Remote (List Commit)
     , utc : Time.Zone
+    , showchanges : Bool
 
     --, style : Animation.State
     }
@@ -118,11 +129,13 @@ type alias DAG =
     Zipper Node
 
 
-type Remote a
-    = NotAsked
-    | Loading
-    | LoadingSlowly
-    | Success a
+
+--type Remote a
+--    = NotAsked
+--    | Loading
+--    | LoadingSlowly
+--    | Success a
+--    | Failed String
 
 
 type Action
@@ -153,7 +166,7 @@ type Notification
 type Msg
     = NoOp
     | DagPut DAG
-    | GotNewRootHash (Result Http.Error Hash)
+    | GotNewRootHash String Repo (Result Http.Error Hash)
     | GotUpdatedContentHash Node (Result Http.Error Hash)
     | GotNodeContent (Result Http.Error Content)
     | AddText Content
@@ -166,6 +179,7 @@ type Msg
     | DragEnter
     | DragLeave
     | AddTree (List Int) (Result Http.Error (Tree Node))
+    | DiscardChanges
     | ClearNotifications
     | GotDAG (Result Http.Error DAG)
     | GotLog (Result Http.Error (List Commit))
@@ -174,20 +188,17 @@ type Msg
     | UpdateParent DAG (Result Http.Error Node)
     | PassedSlowLoadThreshold
     | RecursivePin Node
-    | PinAddResponse Hash (Result Http.Error (List String))
     | NodeChanged Node (Result Http.Error Bool)
-    | GotCommitHash (Result Http.Error Hash)
+    | GotCommitHash String (Result Http.Error Hash)
     | GotZone (Result Http.Error Time.Zone)
     | KeyDowns String (Remote DAG)
+    | PinDAG (Result Http.Error (List Node))
+    | FetchWholeDAG
+    | ShowChanges
 
 
 
---| AddBookmark Path String
---| UpdateContent Content (Result Http.Error Content)
---| RetrieveLocalStorageRepos
---| GotRepo (Result Decode.Error Repo)
 --| Animate Animation.Msg
---| UpdateQuery Hash
 -- UPDATE
 
 
@@ -207,39 +218,63 @@ update msg model =
             model.session.url
     in
     case msg of
+        ShowChanges ->
+            ( { model | showchanges = not model.showchanges }, Cmd.none )
+
+        DiscardChanges ->
+            let
+                newRepo =
+                    { repo | unsaved = Dict.empty }
+            in
+            ( { model | repo = newRepo, session = Session.updateRepo model.key newRepo model.session }
+            , Cmd.batch
+                [ Session.store <| Session.updateRepo model.key newRepo model.session
+                , fetchDAG url currentPath
+                ]
+            )
+
+        FetchWholeDAG ->
+            ( model, fetchWholeDAG url repo.tree )
+
         GotZone (Ok zone) ->
             ( { model | utc = zone }, Cmd.none )
 
         GotZone (Err _) ->
             ( { model | utc = Time.utc }, Cmd.none )
 
-        GotCommitHash (Ok hash) ->
-            let
-                newRepo =
-                    { repo | head = Just hash }
-            in
-            ( { model
-                | repo = newRepo
-                , session = Session.updateRepo model.key newRepo model.session
-              }
-            , Task.attempt GotLog <| fetchHistory 10 url hash []
-            )
+        GotCommitHash key (Ok hash) ->
+            if key == model.key then
+                ( { model
+                    | repo = { repo | head = Just hash }
+                    , session = Session.updateRepo key { repo | head = Just hash } model.session
+                  }
+                , Task.attempt GotLog <| fetchHistory 10 url hash []
+                )
 
-        GotCommitHash (Err _) ->
-            ( { model | notifications = [ ServerError "Ошибка обновления истории хранилища" ] }, Cmd.none )
+            else
+                case Dict.get key model.session.repos of
+                    Just r ->
+                        ( { model | session = Session.updateRepo key { r | head = Just hash } model.session }, Cmd.none )
+
+                    Nothing ->
+                        ( { model | notifications = [ ServerError <| "Updated repo named " ++ key ++ " doesn't exist anymore" ] }
+                        , Cmd.none
+                        )
+
+        GotCommitHash key (Err _) ->
+            ( { model | notifications = [ ServerError <| "Ошибка обновления истории хранилища" ++ key ] }, Cmd.none )
 
         GotDAG (Ok dag) ->
-            ( { model | zipper = Success <| setFocus location dag }
-            , case Dict.get currentPath.location model.repo.unsaved of
-                Just changed ->
-                    Content.fetchByCid url changed.cid GotNodeContent
-
-                Nothing ->
-                    Content.fetch url currentPath GotNodeContent
-            )
+            ( { model | zipper = Success dag }, contentRequest url currentPath model.repo.unsaved )
 
         GotDAG (Err _) ->
-            ( { model | notifications = [ ServerError "Ошибка загрузки дерева классификатора" ] }, Cmd.none )
+            ( { model
+                | notifications = [ ServerError "Не удалось загрузить искомую ячейку. Загружен корневой раздел" ]
+                , repo = { repo | location = [] }
+                , session = Session.updateRepo model.key { repo | location = [] } model.session
+              }
+            , fetchDAG url { cid = repo.tree, location = [] }
+            )
 
         GotLog (Ok log) ->
             ( { model | log = Success log }, Cmd.none )
@@ -251,14 +286,12 @@ update msg model =
             case Zipper.removeTree zipper of
                 Just parent ->
                     let
-                        removedNode =
-                            Zipper.label zipper
-
-                        node =
-                            Zipper.label parent
-
                         newRepo =
-                            { repo | location = node.location, unsaved = Dict.remove removedNode.location model.repo.unsaved }
+                            { repo
+                                | location = .location (Zipper.label parent)
+                                , unsaved =
+                                    Tree.foldl (\label acc -> Dict.remove label.location acc) model.repo.unsaved (Zipper.tree zipper)
+                            }
                     in
                     ( { model
                         | zipper = Success parent
@@ -277,7 +310,7 @@ update msg model =
                 , repo = { repo | location = node.location }
                 , session = Session.updateRepo model.key { repo | location = node.location } model.session
               }
-            , checkNodeForChanges url repo.tree node
+            , checkNodeForChanges url repo.tree node model.repo.unsaved
             )
 
         UpdateParent _ (Err _) ->
@@ -290,13 +323,13 @@ update msg model =
                 child =
                     newChild zipper
 
-                newLinks =
-                    Zipper.children zipper
+                unsaved =
+                    Dict.insert child.location child model.repo.unsaved
             in
             ( { model
                 | zipper = Success (appendChild zipper) --updateRemote appendChild model.zipper
-                , repo = { repo | unsaved = Dict.insert child.location child model.repo.unsaved }
-                , session = Session.updateRepo model.key { repo | location = child.location } model.session
+                , repo = { repo | unsaved = unsaved }
+                , session = Session.updateRepo model.key { repo | unsaved = unsaved } model.session
               }
             , Cmd.none
             )
@@ -304,12 +337,9 @@ update msg model =
         KeyDowns code (Success zipper) ->
             let
                 node =
-                    Zipper.label zipper
+                    Zipper.label (keyAction code zipper)
             in
-            ( { model
-                | zipper = Success <| keyAction code zipper
-                , repo = { repo | unsaved = Dict.insert node.location node model.repo.unsaved }
-              }
+            ( { model | zipper = Success <| keyAction code zipper }
             , Cmd.none
             )
 
@@ -317,16 +347,12 @@ update msg model =
             ( model, Cmd.none )
 
         UpdateFocus node ->
-            let
-                replaceLabel z =
-                    setFocus node.location z
-                        |> Zipper.replaceLabel node
-                        |> setFocus location
-            in
-            ( { model
-                | zipper = updateRemote replaceLabel model.zipper
-              }
-            , checkNodeForChanges url repo.tree node
+            ( { model | zipper = updateRemoteZipper node.location (Zipper.replaceLabel node) model.zipper }
+            , if node.editing then
+                Cmd.none
+
+              else
+                checkNodeForChanges url repo.tree node model.repo.unsaved
             )
 
         NodeChanged node (Ok changed) ->
@@ -349,7 +375,7 @@ update msg model =
             )
 
         NodeChanged _ (Err _) ->
-            ( model, Cmd.none )
+            ( { model | notifications = [ ServerError "Ошибка запроса изменения узла (NodeChanged Msg)" ] }, Cmd.none )
 
         GotUpdatedContentHash node (Ok cid) ->
             if cid == node.cid then
@@ -362,23 +388,6 @@ update msg model =
             else
                 update (UpdateFocus { node | cid = cid }) model
 
-        {- let
-               replaceLabel z =
-                   setFocus node.location z
-                       |> Zipper.replaceLabel { node | cid = cid }
-                       |> setFocus location
-
-               unsaved =
-                   Dict.insert node.location { node | cid = cid } model.repo.unsaved
-           in
-           ( { model
-               | zipper = updateRemote replaceLabel model.zipper
-               , repo = { repo | unsaved = unsaved }
-               , session = Session.updateRepo model.key { repo | unsaved = unsaved } model.session
-             }
-           , checkNodeForChanges url repo.tree { node | cid = cid }
-           )
-        -}
         GotUpdatedContentHash node (Err _) ->
             ( { model | notifications = [ ServerError "Ошибка запроса хэша файлов (GotUpdatedContentHash Msg)" ] }, Cmd.none )
 
@@ -387,15 +396,21 @@ update msg model =
                 ( haveNoChildren, newZipper ) =
                     case model.zipper of
                         Success zipper ->
-                            ( List.isEmpty <| Zipper.children <| setFocus node.location zipper
-                            , Success <| Zipper.replaceLabel node <| setFocus node.location zipper
-                            )
+                            case setFocus node.location zipper of
+                                Just focused_zipper ->
+                                    ( List.isEmpty (Zipper.children focused_zipper)
+                                    , Success <| Zipper.replaceLabel node focused_zipper
+                                      -- ^ label replaced for accept node editing status
+                                    )
+
+                                Nothing ->
+                                    ( False, model.zipper )
 
                         _ ->
                             ( False, model.zipper )
             in
             if node.location == model.repo.location then
-                ( { model | zipper = newZipper }
+                ( { model | zipper = newZipper, showchanges = False }
                 , if node.editing then
                     Dom.focus (Route.locationToString "/" node.location)
                         |> Task.attempt (\_ -> NoOp)
@@ -409,6 +424,7 @@ update msg model =
                     | zipper = newZipper
                     , repo = { repo | location = node.location }
                     , session = Session.updateRepo model.key { repo | location = node.location } model.session
+                    , showchanges = False
 
                     --, style = Animation.interrupt [ Animation.set [ Animation.opacity 0.0 ] ] model.style
                   }
@@ -421,47 +437,75 @@ update msg model =
                             Content.fetch url { currentPath | location = node.location } GotNodeContent
                     , Session.store <| Session.updateRepo model.key { repo | location = node.location } model.session
                     , if haveNoChildren then
-                        getChildren url model.repo.tree { node | expanded = True }
+                        getChildren url { node | expanded = True }
                             |> Task.attempt (AddTree node.location)
 
                       else
                         Cmd.none
-                    , Api.post
-                        (Endpoint.filesWrite url "/suzdal/repos.json")
-                        (Api.jsonToHttpBody <| Repo.reposEncoder model.session.repos)
-                        (\_ -> NoOp)
                     ]
                 )
 
         ClearNotifications ->
             ( { model | notifications = [] }, Cmd.none )
 
-        -- just update zipper without any other actions
         AddTree to (Ok tree) ->
             let
-                replace z =
-                    setFocus to z
-                        |> Zipper.replaceTree tree
-                        |> setFocus model.repo.location
+                node =
+                    Tree.label tree
+
+                isNewChild k =
+                    case List.Extra.init k of
+                        Just x ->
+                            x == node.location
+
+                        Nothing ->
+                            False
+
+                newChildren : List Node
+                newChildren =
+                    Dict.filter (\k _ -> isNewChild k) model.repo.unsaved
+                        |> Dict.values
+
+                oldChildren : Changes
+                oldChildren =
+                    Tree.children tree
+                        |> List.map Tree.label
+                        |> List.map (\n -> Tuple.pair n.location n)
+                        |> Dict.fromList
+
+                treeWithNewNodes : List Node -> Dict.Dict (List Int) Node -> Dict.Dict (List Int) Node
+                treeWithNewNodes children dict =
+                    case children of
+                        x :: xs ->
+                            Dict.insert x.location x dict
+                                |> treeWithNewNodes xs
+
+                        [] ->
+                            dict
+
+                newTree =
+                    treeWithNewNodes newChildren oldChildren
+                        |> Dict.values
+                        |> List.map Tree.singleton
+                        |> Tree.tree { node | expanded = False }
             in
-            ( { model | zipper = updateRemote replace model.zipper }, Cmd.none )
+            ( { model | zipper = updateRemoteZipper node.location (Zipper.replaceTree newTree) model.zipper }, Cmd.none )
 
         AddTree _ (Err _) ->
-            ( { model | notifications = [ ServerError "Не удалось загрузить дерево. Попробуйте ещё раз" ] }, Cmd.none )
+            ( { model | notifications = [ ServerError "Ошибка загрузки дочерних ячеек" ] }, Cmd.none )
 
         RecursivePin node ->
-            ( model
-            , Api.get
-                (Endpoint.pinAdd url node.links)
-                (PinAddResponse node.links)
-                (Decode.field "Pins" <| Decode.list Decode.string)
+            ( model, pinDAG url node [] |> Task.attempt PinDAG )
+
+        PinDAG (Ok nodes) ->
+            ( { model
+                | notifications = [ PinAdd <| "Успешно сохранено " ++ (String.fromInt <| List.length nodes) ++ " узлов" ]
+              }
+            , Cmd.none
             )
 
-        PinAddResponse hash (Ok _) ->
-            ( { model | notifications = [ PinAdd ("Успешно сохранён " ++ hash) ] }, Cmd.none )
-
-        PinAddResponse hash (Err _) ->
-            ( { model | notifications = [ ServerError ("Не удалось сохранить " ++ hash) ] }, Cmd.none )
+        PinDAG (Err _) ->
+            ( { model | notifications = [ ServerError "Не удалось сохранить" ] }, Cmd.none )
 
         NoOp ->
             ( model, Cmd.none )
@@ -486,27 +530,37 @@ update msg model =
             , Content.update url content (file :: files) |> Task.attempt (GotUpdatedContentHash { node | size = size })
             )
 
-        --UpdateQuery hash ->
-        --    ( { model | repo = Success ( Editing, hash ) }, Cmd.none )
-        GotNewRootHash (Ok cid) ->
+        GotNewRootHash key upd_repo (Ok cid) ->
             let
                 newPath =
                     { currentPath | cid = cid }
-            in
-            ( { model
-                | repo = { repo | tree = cid }
-                , session = Session.updateRepo model.key { repo | tree = cid } model.session
-              }
-            , Cmd.batch
-                [ fetchDAG url newPath
-                , Content.fetch url newPath GotNodeContent
-                , Session.store <| Session.updateRepo model.key { repo | tree = cid } model.session
-                , createCommit url model.session.settings.author repo "commit message"
-                ]
-            )
 
-        GotNewRootHash (Err _) ->
-            ( { model | notifications = [ ServerError "Ошибка запроса корневого хэша (GotNewRootHash Msg)" ] }
+                newRepo =
+                    { upd_repo | tree = cid, unsaved = Dict.empty }
+
+                newSession =
+                    Session.updateRepo key newRepo model.session
+            in
+            if key == model.key then
+                ( { model | repo = newRepo, session = newSession }
+                , Cmd.batch
+                    [ Session.store newSession
+                    , createCommit url model.session.settings.author upd_repo key <| "commit " ++ key
+                    , fetchDAG url newPath
+                    , Content.fetch url newPath GotNodeContent
+                    ]
+                )
+
+            else
+                ( { model | session = newSession }
+                , Cmd.batch
+                    [ Session.store newSession
+                    , createCommit url model.session.settings.author upd_repo key <| "commit " ++ key
+                    ]
+                )
+
+        GotNewRootHash key upd_repo (Err _) ->
+            ( { model | notifications = [ ServerError <| "Ошибка обновления репозитория (GotNewRootHash Msg)" ++ upd_repo.name ] }
             , Cmd.none
             )
 
@@ -547,10 +601,7 @@ update msg model =
                 rootbody =
                     jsonToHttpBody << ipldNodeEncoder << Zipper.label
             in
-            ( { model
-                | zipper = LoadingSlowly
-                , repo = { repo | unsaved = Dict.empty }
-              }
+            ( { model | zipper = Loading }
             , Cmd.batch
                 [ Dict.values model.repo.unsaved
                     |> List.reverse
@@ -560,7 +611,7 @@ update msg model =
                             Decode.at [ "Cid", "/" ] Decode.string
                                 |> Api.task "POST" (Endpoint.dagPut url) (rootbody patched_zipper)
                         )
-                    |> Task.attempt GotNewRootHash
+                    |> Task.attempt (GotNewRootHash model.key model.repo)
                 , Task.perform (\_ -> PassedSlowLoadThreshold) Loading.slowThreshold
                 ]
             )
@@ -626,44 +677,11 @@ update msg model =
 
 
 {- Animate animMsg ->
-         ( { model
-             | style = Animation.update animMsg model.style
-           }
-         , Cmd.none
-         )
-       GotRepo (Ok r) ->
-           case r.tree of
-               Just hash ->
-                   let
-                       path =
-                           { cid = hash, location = r.path }
-                   in
-                   ( { model | path = path, repo = r }, fetchDAG url path )
-
-               Nothing ->
-                   ( { model | repo = Just r }, Cmd.none )
-
-       GotRepo (Err e) ->
-           ( { model | notifications = [ ServerError <| Decode.errorToString e ] }, Cmd.none )
-
-      RetrieveLocalStorageRepos ->
-          ( model, Api.retrieveObject "repos" )
-
-
-   UpdateContent content result ->
-       case result of
-           Ok list ->
-               ( { model | content = Success <| List.indexedMap (\i a -> { a | id = i }) (list ++ content) }
-               , let
-                   body =
-                       contentEncoder (list ++ content)
-                 in
-                 Api.put url body (GotUpdatedContentHash <| contentSize content)
-               )
-
-           Err _ ->
-               ( { model | notifications = [ ServerError "Ошибка загрузки файлов (UpdateContent Msg)" ] }, Cmd.none )
-
+   ( { model
+       | style = Animation.update animMsg model.style
+     }
+   , Cmd.none
+   )
 -}
 --VIEW
 
@@ -681,9 +699,9 @@ view model =
             [ spacing 15
             , width fill
             , height fill
+            , inFront (viewNotifications model.notifications)
             ]
-            [ viewNotifications model.notifications
-            , viewMetaData model.repo
+            [ viewMetaData model.repo
             , viewRemote (spinner "Загрузка дерева репозитория") (viewDAG model) model.zipper
             , el
                 [ alignBottom, width fill, padding 7, Background.color <| lightGrey 1.0, Font.size 12 ]
@@ -700,15 +718,6 @@ viewEmptyRepo repo =
 
 viewMetaData : Repo -> Element Msg
 viewMetaData repo =
-    let
-        updateButton hash =
-            el
-                [ Background.color <| lightGrey 1.0
-                , Border.rounded 5
-                ]
-            <|
-                button False Icons.arrowRight (GotNewRootHash <| Ok hash)
-    in
     row
         [ spacing 5
         , paddingXY 15 5
@@ -726,73 +735,148 @@ viewMetaData repo =
             ]
           <|
             text repo.name
-        , el [ width fill, Font.italic, Font.size 12 ] <| text ("( " ++ String.fromInt (Dict.size repo.unsaved) ++ " изменений)")
-        , el [ padding 5, centerX, centerY, width <| px 30 ] <| html Icons.hash
+        , viewChangesLabel repo.unsaved
+        , el [ padding 5, centerX, centerY, width <| px 30, alignRight ] <| html Icons.hash
         , el [ Font.color <| darkGrey 1.0 ] <| text repo.tree
         ]
 
 
-viewChanges : Changes -> Element Msg
-viewChanges changes =
+viewChangesLabel : Changes -> Element Msg
+viewChangesLabel changes =
+    el
+        [ padding 5
+        , width shrink
+        , Background.color <| orange 0.5
+        , mouseOver [ Background.color <| lightGrey 1.0 ]
+        , Border.rounded 5
+        , Font.size 12
+        , pointer
+        , alignLeft
+        , Event.onClick <| ShowChanges
+        , transparent <| Dict.isEmpty changes
+        ]
+        (text <| String.fromInt (Dict.size changes) ++ " изменений")
+
+
+viewChanges : DAG -> Changes -> Element Msg
+viewChanges zipper changes =
     if Dict.isEmpty changes then
         none
 
     else
-        row [ spacing 15, Font.size 12 ]
-            [ el [] <| text "Список изменённых ячеек"
-            , wrappedRow [ spacing 7 ] <| List.map (\( k, v ) -> viewCrumbAsButton k v) <| Dict.toList changes
+        column
+            [ Background.color <| white 1.0, spacing 15, Font.size 12, padding 10, width fill, Border.width 1, Border.rounded 10 ]
+            [ el [ alignRight, Event.onClick DiscardChanges, Font.color <| orange 1.0, pointer ] <| text "Отменить все изменения"
+            , column
+                [ width fill ]
+              <|
+                List.map
+                    (\( _, v ) ->
+                        column
+                            [ width fill
+                            , spacing 10
+                            , mouseOver [ Background.color <| simpleColorCodeConverter v.color 0.2 ]
+                            , padding 10
+                            ]
+                            [ viewCrumbs v zipper
+                            , paragraph
+                                [ Font.bold
+                                , Font.size 18
+                                , Event.onClick <| ChangeFocus v
+                                , pointer
+                                , width fill
+                                ]
+                                [ text v.description ]
+                            ]
+                    )
+                <|
+                    Dict.toList changes
             ]
 
 
-viewDAG : Model -> DAG -> Element Msg
-viewDAG model dag =
+viewCrumbs : Node -> DAG -> Element Msg
+viewCrumbs node zipper =
+    case setFocus node.location zipper of
+        Just focus ->
+            getCrumbs focus []
+                |> (\nodes -> List.drop (List.length nodes - 3) nodes)
+                |> List.map (viewCrumbAsButton zipper)
+                |> List.append [ el [ Font.bold ] <| text "..." ]
+                |> List.intersperse (text "/")
+                |> wrappedRow
+                    [ spacing 7
+                    , Font.size 12
+                    , Font.italic
+                    ]
+
+        Nothing ->
+            text "Can't find this cell"
+
+
+viewCrumbAsButton : DAG -> Node -> Element Msg
+viewCrumbAsButton dag node =
+    el
+        [ width shrink
+        , padding 5
+        , Border.rounded 5
+        , Border.width 1
+        , if (.location <| Zipper.label dag) == node.location then
+            Border.color <| darkGrey 1.0
+
+          else
+            Border.color <| lightGrey 0.5
+        , mouseOver [ Background.color <| lightGrey 0.5 ]
+        , Background.color <| simpleColorCodeConverter node.color 0.7
+        , Font.color <| black 0.8
+        , Event.onClick <| ChangeFocus node
+        , pointer
+        , htmlAttribute <| Html.Attributes.title node.description
+        ]
+    <|
+        text <|
+            String.left 30 node.description
+
+
+cellStyle : Node -> Changes -> DAG -> List (Attribute Msg)
+cellStyle node changes dag =
     let
-        cellStyle alpha node =
+        style alpha =
             [ width fill
             , height fill
             , Background.color <| simpleColorCodeConverter node.color alpha
             , htmlAttribute <| Html.Attributes.style "overflow" "hidden"
             , htmlAttribute <| Html.Attributes.style "white-space" "nowrap"
             , htmlAttribute <| Html.Attributes.style "text-overflow" "ellipsis"
-            , inFront <|
-                el
-                    [ Background.color <| black 0.8
-                    , width <| px 2
-                    , height <| px 2
-                    , padding 3
-                    , alignTop
-                    , alignRight
-                    , moveDown 3.0
-                    , moveLeft 3.0
-                    , transparent <| isNotChanged node
-                    , Border.width 0
-                    , Border.rounded 10
-                    , Border.color <| simpleColorCodeConverter node.color alpha
-                    ]
-                    none
+            , inFront <| dot (isNotChanged node.location changes) (black 0.8)
             ]
 
-        style node =
-            if
-                --node is member of breadcrumbs list
-                List.member node (getCrumbs dag [])
-                    -- node in focus
-                    || (node.location == model.repo.location)
-                    -- focus location occur in-order and consecutively anywhere within the node location
-                    || isInfixOf model.repo.location node.location
-            then
-                cellStyle 1.0 node
+        focus_location =
+            .location <| Zipper.label dag
+    in
+    if
+        --node is member of breadcrumbs list
+        List.member node (getCrumbs dag [])
+            -- focus location occur in-order and consecutively anywhere within the node location
+            || isInfixOf focus_location node.location
+            -- and node is not in focus
+            && node.location
+            /= focus_location
+    then
+        style 1.0
+        -- if node in focus
 
-            else
-                cellStyle 0.3 node
-                    ++ [ Font.color <| darkGrey 1.0
-                       ]
+    else if node.location == focus_location then
+        style 1.0 ++ [ Font.bold ]
 
-        isNotChanged node =
-            not <| Dict.member node.location model.repo.unsaved
+    else
+        style 0.3 ++ [ Font.color <| darkGrey 1.0 ]
 
+
+viewDAG : Model -> DAG -> Element Msg
+viewDAG model dag =
+    let
         isCrumb node =
-            el (style node) <| viewCell node
+            el (cellStyle node model.repo.unsaved dag) <| viewCell node
 
         focus =
             Zipper.label dag
@@ -808,7 +892,7 @@ viewDAG model dag =
     row
         [ width fill
         , height fill
-        , spacing 40
+        , spacing 20
         , paddingEach { edges | top = 10, bottom = 10, left = 30 }
         , htmlAttribute (Html.Attributes.style "flex-shrink" "1")
         , clip
@@ -820,12 +904,19 @@ viewDAG model dag =
             , alignTop
             , height fill
             , scrollbarY
+            , inFront <|
+                if model.showchanges then
+                    viewChanges dag model.repo.unsaved
+
+                else
+                    none
             ]
             [ getContexts dag []
                 |> List.map
                     (row [ width fill, height fill, spacing 5 ] << List.map isCrumb)
                 |> column [ width fill, spacing 5 ]
             , viewNodeProps focus model.session.settings.shownodeprops
+            , row [] [ text "Общее количество ячеек в дереве: ", text <| String.fromInt <| countNodes dag ]
             ]
         , column
             [ alignTop, spacing 10 ]
@@ -922,11 +1013,21 @@ viewEntry zone commit =
         ]
 
 
-viewCrumbs : List Int -> DAG -> Element Msg
-viewCrumbs location zipper =
-    getCrumbs zipper []
-        |> List.map (viewCrumbAsButton location)
-        |> row [ spacing 7 ]
+dot : Bool -> Color -> Element Msg
+dot pred color =
+    el
+        [ Background.color color
+        , width <| px 2
+        , height <| px 2
+        , padding 3
+        , alignTop
+        , alignRight
+        , moveDown 3.0
+        , moveLeft 3.0
+        , transparent pred
+        , Border.rounded 10
+        ]
+        none
 
 
 viewCrumbAsLink : Hash -> Node -> Element Msg
@@ -944,32 +1045,15 @@ viewCrumbAsLink root node =
         }
 
 
-viewCrumbAsButton : List Int -> Node -> Element Msg
-viewCrumbAsButton location node =
-    el
-        [ width shrink
-        , padding 5
-        , Border.rounded 10
-        , Border.width 2
-        , if location == node.location then
-            Border.color <| darkGrey 1.0
-
-          else
-            Border.color <| lightGrey 0.5
-        , mouseOver [ Background.color <| lightGrey 0.5 ]
-        , Background.color <| simpleColorCodeConverter node.color 0.7
-        , Event.onClick <| ChangeFocus node
-        , pointer
-        ]
-    <|
-        text node.description
-
-
 viewCell : Node -> Element Msg
 viewCell node =
     if node.editing then
         Input.multiline
-            [ height fill
+            [ height
+                (fill
+                    |> maximum 300
+                    |> minimum 50
+                )
             , width fill
             , Event.onLoseFocus <| UpdateFocus { node | editing = False }
             , Font.center
@@ -1005,6 +1089,7 @@ viewCell node =
             , htmlAttribute <| Html.Attributes.id <| Route.locationToString "/" node.location
             , Event.onClick <| ChangeFocus node
             , Event.onDoubleClick <| ChangeFocus { node | editing = True }
+            , inFront <| Loading.dots node.expanded
             ]
         <|
             paragraph
@@ -1053,10 +1138,21 @@ viewNodeProps node show =
                 , placeholder = Just <| Input.placeholder [] <| text "Ссылки"
                 , label = Input.labelAbove [] <| el [ Font.size 10 ] <| text "Адрес дочерних ячеек"
                 }
+            , row [ spacing 5 ]
+                [ text "Адрес ячейки в дереве"
+                , viewLocation node.location
+                ]
             ]
 
     else
         none
+
+
+viewLocation : List Int -> Element Msg
+viewLocation list =
+    row [ Font.bold, spacing 5 ] <|
+        List.intersperse (text " / ") <|
+            List.map (text << String.fromInt) list
 
 
 edges =
@@ -1281,8 +1377,6 @@ fontBy size =
         []
 
 
-
-
 viewTable : Path -> Tree Node -> Element Msg
 viewTable path tree =
     let
@@ -1414,6 +1508,16 @@ clearNotificationsButton =
 -- REQUESTS
 
 
+contentRequest : Url -> Path -> Changes -> Cmd Msg
+contentRequest url path changes =
+    case Dict.get path.location changes of
+        Just changed ->
+            Content.fetchByCid url changed.cid GotNodeContent
+
+        Nothing ->
+            Content.fetch url path GotNodeContent
+
+
 fetchHistory : Int -> Url -> Hash -> List Commit -> Task Http.Error (List Commit)
 fetchHistory i url hash history =
     if i /= 0 then
@@ -1440,10 +1544,106 @@ fetchCommit url hash =
 fetchDAG : Url -> Path -> Cmd Msg
 fetchDAG url path =
     Api.task "GET" (Endpoint.dagGet url path.cid) Http.emptyBody nodeDecoder
-        |> Task.andThen (getChildren url path.cid)
-        |> Task.andThen (\tree -> Task.succeed <| Zipper.fromTree <| expandFocus tree)
-        |> Task.andThen (fetchZipper url <| pathlist path)
+        |> Task.andThen (getChildren url)
+        |> Task.andThen (fetchZipper url (pathlist path) << Zipper.fromTree)
         |> Task.attempt GotDAG
+
+
+fetchZipper : Url -> List Path -> DAG -> Task Http.Error DAG
+fetchZipper url paths zipper =
+    case paths of
+        x :: xs ->
+            case setFocus x.location zipper of
+                Just focus ->
+                    fetchZipper url xs focus
+
+                Nothing ->
+                    Zipper.label zipper
+                        |> getChildren url
+                        |> Task.andThen (\tree -> Zipper.replaceTree tree zipper |> fetchZipper url (x :: xs))
+
+        --Task.fail (Http.BadUrl <| Route.locationToString "/" x.location)
+        [] ->
+            Task.succeed zipper
+
+
+fetchWholeDAG : Url -> Hash -> Cmd Msg
+fetchWholeDAG url cid =
+    Api.task "GET" (Endpoint.dagGet url cid) Http.emptyBody nodeDecoder
+        |> Task.andThen (getChildren url)
+        |> Task.andThen (fetchWholeDAGhelp url << Zipper.fromTree)
+        |> Task.attempt GotDAG
+
+
+fetchWholeDAGhelp : Url -> DAG -> Task Http.Error DAG
+fetchWholeDAGhelp url zipper =
+    case Zipper.forward zipper of
+        Just next ->
+            Zipper.label next
+                |> getChildren url
+                |> Task.andThen (\tree -> Zipper.replaceTree tree next |> fetchWholeDAGhelp url)
+
+        Nothing ->
+            Zipper.root zipper
+                |> Task.succeed
+
+
+fetchDAGwithNewNodes : Url -> Path -> Changes -> Cmd Msg
+fetchDAGwithNewNodes url path changes =
+    Api.task "GET" (Endpoint.dagGet url path.cid) Http.emptyBody nodeDecoder
+        |> Task.andThen (getChildren url)
+        |> Task.andThen (addNewNodesTask url path.cid (Dict.toList changes) << Zipper.fromTree)
+        |> Task.andThen
+            (\zipper ->
+                case setFocus path.location zipper of
+                    Just focus ->
+                        Task.succeed focus
+
+                    Nothing ->
+                        fetchZipper url (pathlist path) zipper
+            )
+        |> Task.attempt GotDAG
+
+
+addNewNodesTask : Url -> Hash -> List ( List Int, Node ) -> DAG -> Task Http.Error DAG
+addNewNodesTask url cid changes zipper =
+    case changes of
+        ( location, node ) :: xs ->
+            addNewNode url node (pathlist { cid = cid, location = location }) zipper
+                |> Task.andThen (addNewNodesTask url cid xs)
+
+        [] ->
+            Task.succeed <| Zipper.root zipper
+
+
+addNewNode : Url -> Node -> List Path -> DAG -> Task Http.Error DAG
+addNewNode url node paths zipper =
+    case paths of
+        x :: xs ->
+            case setFocus (Debug.log "FOCUS to" x.location) zipper of
+                Just focus ->
+                    addNewNode url (Debug.log "FOCUS SUCCESS, go NEXT" node) xs focus
+
+                Nothing ->
+                    Zipper.label zipper
+                        |> Debug.log "FOCUS FAILED, fetch CHILDREN"
+                        |> getChildren url
+                        |> Task.andThen
+                            (\tree ->
+                                Zipper.replaceTree
+                                    (if List.isEmpty (Tree.children tree) then
+                                        Tree.appendChild (Tree.tree node []) (Zipper.tree zipper)
+
+                                     else
+                                        tree
+                                    )
+                                    zipper
+                                    |> addNewNode url node (x :: xs)
+                            )
+
+        [] ->
+            getChildren url node
+                |> Task.andThen (\tree -> Task.succeed <| Zipper.replaceTree (Tree.replaceLabel node tree) zipper)
 
 
 commitChanges : Endpoint -> DAG -> List Node -> Task Http.Error DAG
@@ -1482,19 +1682,17 @@ commitChange endpoint zipper =
             Task.succeed zipper
 
 
-checkNodeForChanges : Url -> Hash -> Node -> Cmd Msg
-checkNodeForChanges url roothash node =
+checkNodeForChanges : Url -> Hash -> Node -> Changes -> Cmd Msg
+checkNodeForChanges url roothash node changes =
+    --case Dict.get node.location changes of
+    --    Just changed_node ->
+    --        compareNodes node changed_node
+    --            |> Task.succeed
+    --            |> Task.attempt (NodeChanged node)
+    --    Nothing ->
     Api.task "GET" (Endpoint.node url { cid = roothash, location = node.location }) Http.emptyBody nodeDecoder
         |> Task.andThen (Task.succeed << compareNodes node)
         |> Task.attempt (NodeChanged node)
-
-
-compareNodes : Node -> Node -> Bool
-compareNodes new old =
-    (old.description /= new.description)
-        || (old.links /= new.links)
-        || (old.cid /= new.cid)
-        || (old.color /= new.color)
 
 
 childrenToHttpBody : DAG -> Http.Body
@@ -1519,56 +1717,121 @@ updateParent endpoint zipper =
             )
 
 
-updateRemote : (a -> a) -> Remote a -> Remote a
-updateRemote fun z =
-    case z of
+toMaybe : Remote a -> Maybe a
+toMaybe =
+    mapRemote Just >> withDefault Nothing
+
+
+withDefault : a -> Remote a -> a
+withDefault default data =
+    case data of
         Success x ->
-            Success (fun x)
+            x
 
         _ ->
-            z
+            default
 
 
-setFocus : List Int -> DAG -> DAG
-setFocus location zipper =
-    case Zipper.findFromRoot (\x -> x.location == location) zipper of
-        Just z ->
-            z
+mapRemote : (a -> b) -> Remote a -> Remote b
+mapRemote f data =
+    case data of
+        Success value ->
+            Success (f value)
 
+        Loading ->
+            Loading
+
+        NotAsked ->
+            NotAsked
+
+        Failed error ->
+            Failed error
+
+        LoadingSlowly ->
+            LoadingSlowly
+
+
+fromMaybe : String -> Maybe a -> Remote a
+fromMaybe error maybe =
+    case maybe of
         Nothing ->
-            zipper
+            Failed error
+
+        Just x ->
+            Success x
 
 
-getChildren : Url -> String -> Node -> Task Http.Error (Tree Node)
-getChildren url root node =
+updateRemoteZipper : List Int -> (DAG -> DAG) -> Remote DAG -> Remote DAG
+updateRemoteZipper location fun z =
+    toMaybe z
+        |> Maybe.andThen (setFocus location)
+        |> Maybe.andThen (Just << fun)
+        |> Maybe.andThen (setFocus location)
+        |> fromMaybe "couldn't set focus"
+
+
+setFocus : List Int -> DAG -> Maybe DAG
+setFocus location zipper =
+    Zipper.findFromRoot (\x -> x.location == location) zipper
+
+
+getChildren : Url -> Node -> Task Http.Error (Tree Node)
+getChildren url node =
     Decode.list nodeToTree
         |> Api.task "GET" (Endpoint.dagGet url node.links) Http.emptyBody
-        --|> Api.task "GET" (Endpoint.links { cid = root, location = node.location }) Http.emptyBody
         |> Task.andThen (\list -> Task.succeed <| indexChildren <| Tree.tree node list)
 
 
-getTree : Url -> String -> Int -> Tree Node -> Task Http.Error (Tree Node)
-getTree url root depth tree =
+getTreeOnDepth : Url -> String -> Int -> Tree Node -> Task Http.Error (Tree Node)
+getTreeOnDepth url root depth tree =
     if depth == 0 then
         Task.succeed tree
 
     else
         Tree.label tree
-            |> getChildren url root
-            |> Task.andThen
-                (\x ->
-                    Tree.children x
-                        |> List.map
-                            (\child ->
-                                getTree url root (depth - 1) child
-                            )
-                        |> Task.sequence
-                )
+            |> getChildren url
+            |> Task.andThen (Task.sequence << List.map (getTreeOnDepth url root (depth - 1)) << Tree.children)
             |> Task.andThen (\list -> Task.succeed <| Tree.replaceChildren list tree)
 
 
-createCommit : Url -> Repo.Author -> Repo -> String -> Cmd Msg
-createCommit url author repo comment =
+pin : Url -> Hash -> Task Http.Error (List String)
+pin url hash =
+    Api.task "GET"
+        (Endpoint.pinAdd url hash)
+        Http.emptyBody
+        (Decode.field "Pins" <| Decode.list Decode.string)
+
+
+pinNode : Url -> Node -> Task Http.Error Node
+pinNode url node =
+    List.map (pin url) [ node.cid, node.links ]
+        |> Task.sequence
+        |> Task.andThen (\_ -> Task.succeed node)
+
+
+pinDAG : Url -> Node -> List Node -> Task Http.Error (List Node)
+pinDAG url node acc =
+    pinNode url node
+        |> Task.andThen (fetchChildren url)
+        |> Task.andThen
+            (\nodes ->
+                if List.isEmpty nodes then
+                    Task.succeed (node :: acc)
+
+                else
+                    List.map (\x -> pinDAG url x (node :: acc)) nodes
+                        |> Task.sequence
+                        |> Task.andThen (Task.succeed << List.concat)
+            )
+
+
+fetchChildren : Url -> Node -> Task Http.Error (List Node)
+fetchChildren url node =
+    Api.task "GET" (Endpoint.dagGet url node.links) Http.emptyBody (Decode.list nodeDecoder)
+
+
+createCommit : Url -> Repo.Author -> Repo -> String -> String -> Cmd Msg
+createCommit url author repo key comment =
     let
         commit date =
             { author = author
@@ -1583,43 +1846,7 @@ createCommit url author repo comment =
     in
     Time.now
         |> Task.andThen (\posix -> Api.task "PUT" (Endpoint.dagPut url) (body posix) Api.cidDecoder)
-        |> Task.attempt GotCommitHash
-
-
-
---createLogEntry : Path -> String -> String -> String -> Cmd Msg
---createLogEntry path field old new =
---    let
---        diff =
---            { path = path.location, field = field, old = old, new = new }
---    in
---    if new /= old then
---        Task.map2 (\time zone -> { time = time, zone = zone, diff = diff }) Time.now Time.here
---            |> Task.perform AddLogEntry
---    else
---        Cmd.none
-
-
-fetchZipper : Url -> List Path -> DAG -> Task Http.Error DAG
-fetchZipper url paths zipper =
-    case paths of
-        x :: xs ->
-            let
-                focus =
-                    setFocus x.location zipper
-            in
-            Zipper.label focus
-                |> getChildren url x.cid
-                |> Task.andThen
-                    (\tree ->
-                        Zipper.replaceTree tree focus
-                            |> Zipper.mapLabel (\label -> { label | expanded = not label.expanded })
-                            |> fetchZipper url xs
-                    )
-
-        [] ->
-            Zipper.root zipper
-                |> Task.succeed
+        |> Task.attempt (GotCommitHash key)
 
 
 treeEncoder : Tree Node -> Encode.Value
@@ -1717,13 +1944,63 @@ simpleColorCodeConverter i alpha =
 -- HELPERS
 
 
+countNodes : Zipper Node -> Int
+countNodes zipper =
+    Zipper.toTree zipper |> Tree.flatten |> List.length
+
+
+addNewNodes : List ( List Int, Node ) -> DAG -> DAG
+addNewNodes changes dag =
+    case changes of
+        ( location, node ) :: xs ->
+            case setFocus location dag of
+                Just newdag ->
+                    Zipper.replaceLabel node newdag
+                        |> addNewNodes xs
+
+                Nothing ->
+                    case List.Extra.init location |> Maybe.andThen (\x -> setFocus x dag) of
+                        Just parent ->
+                            Zipper.replaceTree (Zipper.tree parent |> Tree.appendChild (Tree.tree node [])) parent
+                                |> addNewNodes xs
+
+                        Nothing ->
+                            addNewNodes xs dag
+
+        [] ->
+            dag
+
+
+compareNodes : Node -> Node -> Bool
+compareNodes new old =
+    (old.description /= new.description)
+        || (old.links /= new.links)
+        || (old.cid /= new.cid)
+        || (old.color /= new.color)
+
+
+isNotChanged : List Int -> Changes -> Bool
+isNotChanged location unsaved_changes =
+    not (Dict.member location unsaved_changes)
+
+
+isInZipper : List Int -> List (List Int) -> Bool
+isInZipper loc loclist =
+    case loc of
+        x :: xs ->
+            List.member xs loclist
+
+        [] ->
+            False
+
+
 pathlist : Path -> List Path
 pathlist path =
-    processPath { path | location = List.reverse path.location } (\x -> x) []
+    processPath { path | location = List.reverse path.location } identity []
 
 
 
--- helper function - convert single path [0,1,2] to list of paths [[0], [0,1], [0,1,2]]
+-- helper function - convert single path [0,1,2] to list of paths [[0], [0,1], [0,1,2]] for zipper render
 
 
 processPath : Path -> (Path -> a) -> List a -> List a
@@ -1794,35 +2071,28 @@ newChild zipper =
     , description = ""
     , color = 0
     , location = location
-    , expanded = True
+    , expanded = False
     }
 
 
 appendChild : DAG -> DAG
 appendChild zipper =
     let
-        child =
-            newChild zipper
-
         tree =
             Zipper.tree zipper
-                |> Tree.appendChild (Tree.tree child [])
+                |> Tree.appendChild (Tree.tree (newChild zipper) [])
     in
     Zipper.replaceTree tree zipper
 
 
 getCrumbs : DAG -> List Node -> List Node
 getCrumbs zipper acc =
-    let
-        appendLabel =
-            Zipper.label zipper :: acc
-    in
     case Zipper.parent zipper of
         Just parent ->
-            getCrumbs parent appendLabel
+            getCrumbs parent (Zipper.label parent :: acc)
 
         Nothing ->
-            appendLabel
+            acc
 
 
 getContexts : DAG -> List (List Node) -> List (List Node)
@@ -1885,8 +2155,11 @@ viewRemote loader viewer remotecontent =
         LoadingSlowly ->
             loader
 
+        Failed message ->
+            Loading.failed message
+
         _ ->
-            none
+            loader
 
 
 {-| Return True if all the elements of the first list occur in-order and
