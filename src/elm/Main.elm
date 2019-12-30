@@ -170,20 +170,6 @@ stepUrl url model =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        {- GotAuthor (Ok author) ->
-                  ( model
-                  , Cmd.none
-                    --Api.get (Endpoint.filesRead host "/suzdal/settings.json") GotRepos Repo.authorDecoder
-                  )
-
-              GotAuthor (Err _) ->
-                  ( Model navKey (Welcome { session = session, name = "", email = "" }), Cmd.none )
-           GotRepos (Ok repos) ->
-               ( model, Cmd.batch [ Route.replaceUrl model.key Route.Home ] )
-
-           GotRepos (Err _) ->
-               ( model, Cmd.none )
-        -}
         Ignored ->
             ( model, Cmd.none )
 
