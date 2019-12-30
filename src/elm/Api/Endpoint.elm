@@ -1,4 +1,4 @@
-module Api.Endpoint exposing (Endpoint, add, changeLog, config, configSet, connect, content, dagGet, dagPut, file, filesRead, filesWrite, getContent, getInitRepos, id, node, pinAdd, pinLs, publish, repoStat, request, resolve, swarmPeers, task, unwrap)
+module Api.Endpoint exposing (Endpoint, add, changeLog, config, configSet, connect, content, dagGet, dagPut, file, filesRead, filesWrite, getContent, getInitRepos, id, node, pinAdd, pinLs, pinUpdate, pinVerify, publish, repoStat, request, resolve, swarmPeers, task, unwrap)
 
 import Http
 import Json.Encode as Encode
@@ -170,6 +170,16 @@ pinLs url hash =
 pinRm : Url -> String -> Endpoint
 pinRm url hash =
     urlBuilder (endpoint url) [ "pin", "rm" ] [ Url.Builder.string "arg" hash ]
+
+
+pinUpdate : Url -> String -> Endpoint
+pinUpdate url hash =
+    urlBuilder (endpoint url) [ "pin", "update" ] [ Url.Builder.string "arg" hash ]
+
+
+pinVerify : Url -> String -> Endpoint
+pinVerify url hash =
+    urlBuilder (endpoint url) [ "pin", "verify" ] []
 
 
 
