@@ -1,4 +1,4 @@
-module Repo exposing (Author, Changes, Commit, Node, Repo, authorDecoder, authorEncoder, commitDecoder, commitEncoder, defaultRepos, encoder, ipldNodeEncoder, isChanged, label, list, menuLink, nodeDecoder, repoDecoder, reposDecoder, reposEncoder, store, storeDefaultRepos, template)
+module Repo exposing (Author, Changes, Commit, Node, Remote(..), Repo, authorDecoder, authorEncoder, commitDecoder, commitEncoder, defaultRepos, encoder, ipldNodeEncoder, isChanged, label, list, menuLink, nodeDecoder, nodeEncoderForLocalStorage, repoDecoder, reposDecoder, reposEncoder, store, storeDefaultRepos, template)
 
 import Api exposing (Hash)
 import Api.Endpoint as Endpoint
@@ -14,6 +14,7 @@ import Json.Decode as Decode exposing (Decoder)
 import Json.Decode.Pipeline as Pipeline exposing (hardcoded, optional, required, requiredAt)
 import Json.Encode as Encode exposing (Value)
 import Time
+import Tree.Zipper as Zipper exposing (Zipper)
 import UI.Colors as Colors
 import UI.Fonts
 import UI.Icons as Icons
@@ -30,14 +31,6 @@ type ContentAdressable a
     = ContentAdressable ( Hash, Remote a )
 
 
-type Remote a
-    = NotAsked
-    | Loading
-    | LoadingSlowly
-    | Success a
-    | Failed
-
-
 type alias Repo =
     { name : String
     , description : String
@@ -47,6 +40,14 @@ type alias Repo =
     , head : Maybe Hash
     , unsaved : Changes
     }
+
+
+type Remote a
+    = NotAsked
+    | Loading
+    | LoadingSlowly
+    | Success a
+    | Failed String
 
 
 type alias Changes =
