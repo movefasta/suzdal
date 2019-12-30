@@ -2159,7 +2159,7 @@ viewRemote loader viewer remotecontent =
             Loading.failed message
 
         _ ->
-            loader
+            none
 
 
 {-| Return True if all the elements of the first list occur in-order and

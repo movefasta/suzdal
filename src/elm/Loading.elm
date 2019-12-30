@@ -76,4 +76,4 @@ failed str =
 
 slowThreshold : Task x ()
 slowThreshold =
-    Process.sleep 200
+    Process.sleep 500
