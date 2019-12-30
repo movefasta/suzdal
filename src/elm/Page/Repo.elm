@@ -33,7 +33,7 @@ import Time
 import Timestamp
 import Tree exposing (Tree)
 import Tree.Zipper as Zipper exposing (Zipper)
-import UI.Button exposing (button)
+import UI.Button
 import UI.Colors exposing (..)
 import UI.Icons as Icons
 import Url exposing (Url)
@@ -829,10 +829,10 @@ viewDAG model dag =
             ]
         , column
             [ alignTop, spacing 10 ]
-            [ button (not <| haveParent dag) Icons.trash2 <| RemoveFocus dag
-            , saveButton model.repo.unsaved dag
-            , button False Icons.download <| RecursivePin (Zipper.label dag)
-            , button False Icons.plusCircle <| Append dag
+            [ UI.Button.delete (not <| haveParent dag) <| RemoveFocus dag
+            , UI.Button.save (Dict.isEmpty model.repo.unsaved) (Dict.size model.repo.unsaved) (DagPut dag)
+            , UI.Button.download <| RecursivePin <| Zipper.label dag
+            , UI.Button.addNode <| Append dag
             ]
         , column
             [ width fill
@@ -865,8 +865,8 @@ viewContentEditor : Node -> Content -> Element Msg
 viewContentEditor node content =
     row
         [ alignRight, alignBottom ]
-        [ button False Icons.fileText (AddText content)
-        , button False Icons.filePlus (Pick node content)
+        [ UI.Button.addTextFile (AddText content)
+        , UI.Button.addFile (Pick node content)
 
         --, el [ alignRight, transparent (List.isEmpty content) ] <|
         --    button False Icons.trash2 <|
@@ -1281,38 +1281,6 @@ fontBy size =
         []
 
 
-saveButton : Changes -> DAG -> Element Msg
-saveButton changes dag =
-    let
-        noChanges =
-            Dict.isEmpty changes
-    in
-    el
-        [ Background.color <|
-            if noChanges then
-                lightGrey 1.0
-
-            else
-                orange 1.0
-        , Border.rounded 5
-        , Dict.size changes
-            |> String.fromInt
-            |> text
-            |> el
-                [ alignTop
-                , alignRight
-                , Font.size 10
-                , Font.color <| white 1.0
-                , Background.color <| black 0.8
-                , Border.rounded 10
-                , padding 3
-                , moveRight 4
-                , moveUp 4
-                ]
-            |> inFront
-        ]
-    <|
-        button noChanges Icons.save (DagPut dag)
 
 
 viewTable : Path -> Tree Node -> Element Msg

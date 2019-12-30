@@ -1,4 +1,4 @@
-module UI.Button exposing (add, button, delete, next, refresh, save)
+module UI.Button exposing (add, addFile, addNode, addTextFile, button, delete, download, next, refresh, save)
 
 import Element as E exposing (..)
 import Element.Background as Background
@@ -7,7 +7,8 @@ import Element.Events as Event
 import Element.Font as Font
 import Element.Input as Input
 import Html
-import UI.Colors as Colors
+import Html.Attributes
+import UI.Colors as Colors exposing (..)
 import UI.Icons as Icons
 
 
@@ -21,6 +22,8 @@ type alias Options =
     , text : String
     , icon : Icon
     , size : Size
+    , counter : Int
+    , title : Maybe String
     }
 
 
@@ -41,6 +44,8 @@ type Icon
     | Delete
     | Refresh
     | None
+    | AddFile
+    | AddTextFile
 
 
 type Size
@@ -55,15 +60,40 @@ defaultOptions =
     , icon = None
     , text = ""
     , size = Medium
+    , counter = 0
+    , title = Nothing
     }
 
 
-save : msg -> Element msg
-save msg =
+save : Bool -> Int -> msg -> Element msg
+save prediction int msg =
     Button defaultOptions msg
         |> withRole Info
         |> withIcon Save
-        |> withSize Small
+        |> withSize Medium
+        |> withCounter int
+        |> withTitle "Сохранить хранилище в IPFS"
+        |> disable prediction
+        |> renderButton
+
+
+addFile : msg -> Element msg
+addFile msg =
+    Button defaultOptions msg
+        |> withRole Info
+        |> withIcon AddFile
+        |> withSize Medium
+        |> withTitle "Добавить файл"
+        |> renderButton
+
+
+addTextFile : msg -> Element msg
+addTextFile msg =
+    Button defaultOptions msg
+        |> withRole Info
+        |> withIcon AddTextFile
+        |> withSize Medium
+        |> withTitle "Добавить текст"
         |> renderButton
 
 
@@ -76,12 +106,14 @@ refresh msg =
         |> renderButton
 
 
-delete : msg -> Element msg
-delete msg =
+delete : Bool -> msg -> Element msg
+delete prediction msg =
     Button defaultOptions msg
         |> withRole Danger
         |> withSize Medium
         |> withIcon Delete
+        |> withTitle "Удалить текущую выделенную ячейку и все дочерние ячейки"
+        |> disable prediction
         |> renderButton
 
 
@@ -92,6 +124,27 @@ add msg =
         |> withSize Medium
         |> withIcon Add
         |> withText "Добавить"
+        |> renderButton
+
+
+addNode : msg -> Element msg
+addNode msg =
+    Button defaultOptions msg
+        |> withRole Info
+        |> withSize Medium
+        |> withIcon Add
+        |> withTitle "Добавить дочернюю ячейку"
+        |> renderButton
+
+
+download : msg -> Element msg
+download msg =
+    Button defaultOptions msg
+        |> withRole Info
+        |> withSize Medium
+        |> withIcon Download
+        |> withTitle "Сохранить локально весь репозиторий"
+        |> disable False
         |> renderButton
 
 
@@ -119,23 +172,59 @@ withIcon icon (Button options msg) =
     Button { options | icon = icon } msg
 
 
+withTitle : String -> Button msg -> Button msg
+withTitle title (Button options msg) =
+    Button { options | title = Just title } msg
+
+
 withRole : Role -> Button msg -> Button msg
 withRole role (Button options msg) =
     Button { options | role = role } msg
 
 
-disable : Button msg -> Button msg
-disable (Button options msg) =
-    Button { options | disabled = True } msg
+withCounter : Int -> Button msg -> Button msg
+withCounter int (Button options msg) =
+    Button { options | counter = int } msg
+
+
+disable : Bool -> Button msg -> Button msg
+disable bool (Button options msg) =
+    Button { options | disabled = bool } msg
 
 
 renderButton : Button msg -> Element msg
 renderButton (Button options msg) =
+    let
+        counterIsZero =
+            options.counter == 0
+    in
     Input.button
         [ padding 5
-        , mouseOver <| backgroundByRole options.role
         , alignLeft
         , Border.rounded 5
+        , mouseOver <| [ Background.color <| Colors.lightGrey 1.0 ]
+        , backgroundByRole <|
+            if counterIsZero then
+                Blank
+
+            else
+                Danger
+        , String.fromInt options.counter
+            |> text
+            |> el
+                [ alignTop
+                , alignRight
+                , Font.size 10
+                , Font.color <| white 1.0
+                , Background.color <| black 0.8
+                , Border.rounded 10
+                , padding 3
+                , moveRight 4
+                , moveUp 4
+                , transparent counterIsZero
+                ]
+            |> inFront
+        , renderTitle options.title
         ]
         { onPress =
             if not options.disabled then
@@ -174,7 +263,7 @@ button disabled icon msg =
         }
 
 
-backgroundByRole : Role -> List Decoration
+backgroundByRole : Role -> Attr decorative msg
 backgroundByRole role =
     let
         color =
@@ -191,7 +280,17 @@ backgroundByRole role =
                 Blank ->
                     Colors.white 1.0
     in
-    [ Background.color color ]
+    Background.color color
+
+
+renderTitle : Maybe String -> Attribute msg
+renderTitle maybe_title =
+    case maybe_title of
+        Just title ->
+            htmlAttribute <| Html.Attributes.title title
+
+        Nothing ->
+            inFront none
 
 
 renderIcon : Size -> Icon -> Element msg
@@ -223,6 +322,12 @@ renderIcon size icon =
                 Refresh ->
                     Icons.refreshCcw
 
+                AddFile ->
+                    Icons.filePlus
+
+                AddTextFile ->
+                    Icons.fileText
+
                 None ->
                     Html.div [] []
 
@@ -237,7 +342,7 @@ renderIcon size icon =
                             20
 
                         Medium ->
-                            30
+                            25
 
                         Big ->
                             50

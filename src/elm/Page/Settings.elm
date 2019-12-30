@@ -637,7 +637,7 @@ viewPeer peer =
                 , alignRight
                 ]
               <|
-                Button.delete (DeletePeer peer.id)
+                Button.delete False (DeletePeer peer.id)
             ]
         , if peer.editing then
             viewPeerProperties peer

@@ -132,7 +132,7 @@ viewEditableRepo ( key, repo ) =
             , placeholder = Just <| Input.placeholder [] <| text "Описание репозитория"
             , label = Input.labelAbove [ Font.color <| orange 1.0, Font.size 11 ] <| validateText 50 repo.description
             }
-        , Button.delete <| DeleteRepo key
+        , Button.delete False <| DeleteRepo key
         ]
 
 
