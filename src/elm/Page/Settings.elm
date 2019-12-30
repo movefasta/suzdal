@@ -219,6 +219,11 @@ update msg model =
 
         settings =
             model.session.settings
+
+        updateSettings s =
+            ( { model | session = Session.updateSettings s model.session }
+            , Session.store <| Session.updateSettings s model.session
+            )
     in
     case msg of
         NoOp ->
@@ -228,9 +233,7 @@ update msg model =
             ( model, Cmd.none )
 
         InvertShowNodeProps bool ->
-            ( { model | session = Session.updateSettings { settings | shownodeprops = bool } model.session }
-            , Cmd.none
-            )
+            updateSettings { settings | shownodeprops = bool }
 
         --checkSwarmPeers url )
         RetrieveLocalStoragePeers ->
