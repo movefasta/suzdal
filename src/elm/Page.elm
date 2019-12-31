@@ -31,7 +31,7 @@ type Page
 
 view : Page -> { title : String, content : Element msg } -> Browser.Document msg
 view page { title, content } =
-    { title = title, body = Layout.toHtml <| row [ width fill, height fill ] [ viewMenu page, content ] }
+    { title = title ++ " v0.3.0", body = Layout.toHtml <| row [ width fill, height fill ] [ viewMenu page, content ] }
 
 
 viewMenu : Page -> Element msg

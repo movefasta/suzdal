@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0] - 2019-12-31
+
+### Added
+- Unsaved changes management
+
+### Changed
+- UI.Button module
+- Spinner doesn't showed on fast loading content
+
+### Fixed
+- Settings now stored in local storage
+
 ## [0.2.0] - 2019-12-05
 
 ### Added

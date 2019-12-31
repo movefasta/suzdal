@@ -1620,13 +1620,13 @@ addNewNode : Url -> Node -> List Path -> DAG -> Task Http.Error DAG
 addNewNode url node paths zipper =
     case paths of
         x :: xs ->
-            case setFocus (Debug.log "FOCUS to" x.location) zipper of
+            case setFocus x.location zipper of
                 Just focus ->
-                    addNewNode url (Debug.log "FOCUS SUCCESS, go NEXT" node) xs focus
+                    addNewNode url node xs focus
 
                 Nothing ->
                     Zipper.label zipper
-                        |> Debug.log "FOCUS FAILED, fetch CHILDREN"
+                        --|> Debug.log "FOCUS FAILED, fetch CHILDREN"
                         |> getChildren url
                         |> Task.andThen
                             (\tree ->
