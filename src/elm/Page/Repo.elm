@@ -54,11 +54,25 @@ toSession model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    Sub.batch
-        [ Events.onKeyPress (Decode.map (\x -> KeyDowns x model.zipper) keyDecoder)
+    if contentIsEditing model.content then
+        Sub.none
 
-        --, Animation.subscription Animate [ model.style ]
-        ]
+    else
+        Sub.batch
+            [ Events.onKeyPress (Decode.map (\x -> KeyDowns x model.zipper) keyDecoder)
+
+            --, Animation.subscription Animate [ model.style ]
+            ]
+
+
+contentIsEditing : Remote (List Link) -> Bool
+contentIsEditing remote_list =
+    case remote_list of
+        Success content ->
+            List.any (\link -> Editing == link.status) content
+
+        _ ->
+            False
 
 
 
@@ -346,11 +360,18 @@ update msg model =
         KeyDowns code (Success zipper) ->
             let
                 node =
-                    Zipper.label (keyAction code zipper)
+                    Zipper.label zipper
             in
-            ( { model | zipper = Success <| keyAction code zipper }
-            , Cmd.none
-            )
+            case String.toInt code of
+                Just int ->
+                    if node.color == int then
+                        ( model, Cmd.none )
+
+                    else
+                        update (UpdateFocus { node | color = int }) model
+
+                Nothing ->
+                    ( model, Cmd.none )
 
         KeyDowns _ _ ->
             ( model, Cmd.none )
@@ -2147,28 +2168,22 @@ keyAction code zipper =
         label =
             Zipper.label zipper
 
-        function =
-            case code of
-                "a" ->
-                    Zipper.previousSibling
-
-                "d" ->
-                    Zipper.nextSibling
-
-                "w" ->
-                    Zipper.parent
-
-                "s" ->
-                    Zipper.firstChild
-
-                "F2" ->
-                    \_ -> Just <| Zipper.replaceLabel { label | editing = True } zipper
-
-                "Escape" ->
-                    \_ -> Just <| Zipper.replaceLabel { label | editing = False } zipper
-
-                _ ->
-                    \_ -> Just zipper
+        --function =
+        --    case code of
+        --        "a" ->
+        --            Zipper.previousSibling
+        --        "d" ->
+        --            Zipper.nextSibling
+        --        "w" ->
+        --            Zipper.parent
+        --        "s" ->
+        --            Zipper.firstChild
+        --        "F2" ->
+        --            \_ -> Just <| Zipper.replaceLabel { label | editing = True } zipper
+        --        "Escape" ->
+        --            \_ -> Just <| Zipper.replaceLabel { label | editing = False } zipper
+        --        _ ->
+        --            \_ -> Just zipper
     in
     case String.toInt code of
         Just int ->
