@@ -1,4 +1,4 @@
-module Api.Endpoint exposing (Endpoint, add, changeLog, config, configSet, connect, content, dagGet, dagPut, file, filesRead, filesWrite, getContent, getInitRepos, id, node, pinAdd, pinLs, pinUpdate, pinVerify, publish, repoStat, request, resolve, swarmPeers, task, unwrap)
+module Api.Endpoint exposing (Endpoint, add, changeLog, config, configSet, connect, content, dagGet, dagPut, file, filesLs, filesRead, filesWrite, getContent, getInitRepos, id, node, objectGet, pinAdd, pinLs, pinUpdate, pinVerify, publish, repoStat, request, resolve, swarmPeers, task, unwrap)
 
 import Http
 import Json.Encode as Encode
@@ -39,9 +39,14 @@ dagGet url cid =
     urlBuilder (endpoint url) [ "dag", "get" ] [ Url.Builder.string "arg" cid ]
 
 
+objectGet : Url -> String -> Endpoint
+objectGet url cid =
+    urlBuilder (endpoint url) [ "object", "get" ] [ Url.Builder.string "arg" cid ]
+
+
 dagPut : Url -> Endpoint
 dagPut url =
-    urlBuilder (endpoint url) [ "dag", "put" ] [ Url.Builder.string "pin" "true" ]
+    urlBuilder (endpoint url) [ "dag", "put" ] []
 
 
 publish : Url -> String -> Endpoint
@@ -54,12 +59,6 @@ filesRead url path =
     urlBuilder (endpoint url) [ "files", "read" ] [ Url.Builder.string "arg" path ]
 
 
-
---filesWrite : Url -> String -> Endpoint
---filesWrite url path =
---    urlBuilder (endpoint url) [ "files", "write" ] [ Url.Builder.string "arg" path, Url.Builder.string "create" "true" ]
-
-
 filesWrite : Url -> String -> Endpoint
 filesWrite url path =
     let
@@ -67,6 +66,11 @@ filesWrite url path =
             String.join "&" [ path, "create=true", "truncate=true", "parents=true" ]
     in
     Endpoint (endpoint url ++ "/files/write?arg=" ++ options)
+
+
+filesLs : Url -> String -> Endpoint
+filesLs url path =
+    Endpoint (endpoint url ++ "/files/ls?arg=" ++ path ++ "&" ++ "l=true")
 
 
 filesStat : Url -> String -> Endpoint
