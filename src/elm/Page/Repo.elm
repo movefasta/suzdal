@@ -90,17 +90,6 @@ init key repo session =
             Nothing ->
                 Cmd.none
         , Task.attempt GotZone Time.here
-
-        --, fetchDAG session.url { cid = repo.tree, location = repo.location }
-        --, fetchWholeDAG session.url repo.tree
-        --, if repo.zipper == NotAsked then
-        --    Api.task "GET" (Endpoint.dagGet session.url repo.tree) Http.emptyBody nodeDecoder
-        --        |> Task.andThen (getChildren session.url)
-        --        |> Task.andThen (Task.succeed << Zipper.fromTree)
-        --        |> Task.attempt GotDAG
-        --  else
-        --    Cmd.none
-        --, Process.sleep 0 |> Task.perform (\_ -> RetrieveLocalStorageRepos)
         ]
     )
 
@@ -127,15 +116,6 @@ type alias Model =
 
 type alias DAG =
     Zipper Node
-
-
-
---type Remote a
---    = NotAsked
---    | Loading
---    | LoadingSlowly
---    | Success a
---    | Failed String
 
 
 type Action
@@ -195,6 +175,9 @@ type Msg
     | PinDAG (Result Http.Error (List Node))
     | FetchWholeDAG
     | ShowChanges
+    | DAGtoFileSystem DAG
+    | NodeSaved DAG (Result Http.Error ())
+    | RootHashRecursivelyPinned (Result Http.Error (List String))
 
 
 
@@ -218,6 +201,32 @@ update msg model =
             model.session.url
     in
     case msg of
+        RootHashRecursivelyPinned (Ok pins) ->
+            ( { model
+                | notifications = [ PinAdd <| "Успешно сохранены " ++ String.join ", " pins ]
+              }
+            , Cmd.none
+            )
+
+        RootHashRecursivelyPinned (Err _) ->
+            ( { model | notifications = [ ServerError "Не удалось сохранить" ] }, Cmd.none )
+
+        DAGtoFileSystem dag ->
+            ( model, nodeToFilestore url model.key dag )
+
+        NodeSaved zipper (Ok _) ->
+            ( model
+            , case Zipper.forward zipper of
+                Just next ->
+                    nodeToFilestore url model.key next
+
+                Nothing ->
+                    Cmd.none
+            )
+
+        NodeSaved zipper (Err _) ->
+            ( { model | notifications = [ ServerError "Не удалось сохранить" ] }, Cmd.none )
+
         ShowChanges ->
             ( { model | showchanges = not model.showchanges }, Cmd.none )
 
@@ -548,6 +557,7 @@ update msg model =
                     , createCommit url model.session.settings.author upd_repo key <| "commit " ++ key
                     , fetchDAG url newPath
                     , Content.fetch url newPath GotNodeContent
+                    , Task.attempt RootHashRecursivelyPinned (pin url cid)
                     ]
                 )
 
@@ -1508,6 +1518,22 @@ clearNotificationsButton =
 -- REQUESTS
 
 
+nodeToFilestore : Url -> String -> DAG -> Cmd Msg
+nodeToFilestore url repo_key dag =
+    let
+        node =
+            Zipper.label dag
+
+        path =
+            Repo.pathToNodeFolder repo_key node.location
+    in
+    Http.post
+        { url = Endpoint.unwrap (Endpoint.filesWrite url <| path ++ "/node.json")
+        , body = Api.jsonToHttpBody <| Repo.nodeEncoderForLocalStorage node
+        , expect = Http.expectWhatever (NodeSaved dag)
+        }
+
+
 contentRequest : Url -> Path -> Changes -> Cmd Msg
 contentRequest url path changes =
     case Dict.get path.location changes of
@@ -1780,6 +1806,12 @@ getChildren url node =
     Decode.list nodeToTree
         |> Api.task "GET" (Endpoint.dagGet url node.links) Http.emptyBody
         |> Task.andThen (\list -> Task.succeed <| indexChildren <| Tree.tree node list)
+
+
+getChildrenNew : Url -> Node -> String -> Task Http.Error (Tree Node)
+getChildrenNew url node repo_key =
+    Repo.fetchChildren url node repo_key
+        |> Task.andThen (Task.succeed << Tree.tree node << List.map Tree.singleton)
 
 
 getTreeOnDepth : Url -> String -> Int -> Tree Node -> Task Http.Error (Tree Node)

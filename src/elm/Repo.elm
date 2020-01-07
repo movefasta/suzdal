@@ -1,4 +1,4 @@
-module Repo exposing (Author, Changes, Commit, Node, Remote(..), Repo, authorDecoder, authorEncoder, commitDecoder, commitEncoder, defaultRepos, encoder, ipldNodeEncoder, isChanged, label, list, menuLink, nodeDecoder, nodeEncoderForLocalStorage, repoDecoder, reposDecoder, reposEncoder, store, storeDefaultRepos, template)
+module Repo exposing (Author, Changes, Commit, Node, Remote(..), Repo, authorDecoder, authorEncoder, commitDecoder, commitEncoder, defaultRepos, encoder, fetchChildren, ipldNodeEncoder, isChanged, label, list, menuLink, nodeDecoder, nodeEncoderForLocalStorage, pathToNodeFolder, repoDecoder, reposDecoder, reposEncoder, store, storeDefaultRepos, template)
 
 import Api exposing (Hash)
 import Api.Endpoint as Endpoint
@@ -13,12 +13,13 @@ import Iso8601
 import Json.Decode as Decode exposing (Decoder)
 import Json.Decode.Pipeline as Pipeline exposing (hardcoded, optional, required, requiredAt)
 import Json.Encode as Encode exposing (Value)
+import Task exposing (Task)
 import Time
 import Tree.Zipper as Zipper exposing (Zipper)
 import UI.Colors as Colors
 import UI.Fonts
 import UI.Icons as Icons
-import Url
+import Url exposing (Url)
 import Url.Builder
 import Url.Parser
 
@@ -307,6 +308,21 @@ repoDecoder =
         |> optional "unsaved" decodeChanges Dict.empty
 
 
+repoToNode : Repo -> Node
+repoToNode repo =
+    { id = 0
+    , editing = False
+    , name = repo.name
+    , cid = ""
+    , links = ""
+    , size = 0
+    , description = repo.description
+    , color = 0
+    , location = repo.location
+    , expanded = False
+    }
+
+
 commitDecoder : Decoder Commit
 commitDecoder =
     Decode.succeed Commit
@@ -361,20 +377,31 @@ jsonChangesToDict =
 
 
 
--- COMMANDS
---fromFile : (Result Http.Error (List Repo) -> msg) -> Cmd msg
---fromFile trigger =
---    Api.get Endpoint.getInitRepos trigger (Decode.list repoDecoder)
 -- HELPERS
+-- convert node location [0,1,2] in repo "repo1" to absolute path in IPFS filestore "/suzdal/repos/repo1/links/0/links/1/links/2"
+
+
+pathToNodeFolder : String -> List Int -> String
+pathToNodeFolder repo_key location =
+    List.map String.fromInt location
+        |> List.intersperse "links"
+        |> List.append [ pathToRepo repo_key ]
+        |> String.join "/"
+
+
+
+-- path to repo; for repo "repo1" it will be - /suzdal/repos/repo1
+
+
+pathToRepo : String -> String
+pathToRepo key =
+    String.join "/" [ "suzdal", "repos", key ]
+        |> String.append "/"
 
 
 isChanged : List Int -> Changes -> Bool
 isChanged location changes =
     Dict.member location changes
-
-
-
---
 
 
 config : String -> Config msg
@@ -433,3 +460,81 @@ type RepoType
     | Meeting
     | Security
     | Access
+
+
+
+-- FILES API PART **** DEPRECATED ****
+
+
+fetchRepo : Url -> String -> Task Http.Error Repo
+fetchRepo url repo_key =
+    Api.task "GET" (Endpoint.filesRead url <| pathToRepo repo_key ++ "/repo.json") Http.emptyBody repoDecoder
+
+
+fetchChildren : Url -> Node -> String -> Task Http.Error (List Node)
+fetchChildren url node repo_key =
+    Decode.list folderDecoder
+        |> Api.task "GET" (Endpoint.filesLs url <| pathToNodeFolder repo_key node.location ++ "/links") Http.emptyBody
+        |> Task.andThen (Task.sequence << List.map (fetchNode url) << List.filter isLink)
+
+
+fetchNode : Url -> IpfsObject -> Task Http.Error Node
+fetchNode url obj =
+    Api.task "GET" (Endpoint.dagGet url <| obj.hash ++ "/node.json") Http.emptyBody nodeDecoder
+
+
+fetchObject : Url -> Hash -> Task Http.Error IpfsObject
+fetchObject url hash =
+    Api.task "GET" (Endpoint.objectGet url hash) Http.emptyBody folderDecoder
+
+
+type alias Object =
+    { links : List IpfsObject
+    , data : String
+    }
+
+
+type alias IpfsObject =
+    { name : String
+    , size : Int
+    , hash : Hash
+    }
+
+
+
+-- OBJECT API TYPES FOR DECODE IPFS RESPONSES
+
+
+objectDecoder : Decode.Decoder Object
+objectDecoder =
+    Decode.succeed Object
+        |> required "Links" (Decode.list folderDecoder)
+        |> required "Data" Decode.string
+
+
+folderDecoder : Decode.Decoder IpfsObject
+folderDecoder =
+    Decode.succeed IpfsObject
+        |> required "Name" Decode.string
+        |> required "Size" Decode.int
+        |> required "Hash" Decode.string
+
+
+type alias ObjectStat =
+    { hash : String
+    , numLinks : Int
+    , blockSize : Int
+    , linksSize : Int
+    , dataSize : Int
+    , cumulativeSize : Int
+    }
+
+
+isLink : IpfsObject -> Bool
+isLink obj =
+    case String.toInt obj.name of
+        Just _ ->
+            True
+
+        Nothing ->
+            False
