@@ -369,8 +369,8 @@ update msg model =
             in
             ( { model | repo = newRepo, session = Session.updateRepo model.key newRepo model.session }
             , Cmd.batch
-                [ Content.fetchByCid url node.cid GotNodeContent
-                , Session.store <| Session.updateRepo model.key newRepo model.session
+                [ --Content.fetchByCid url node.cid GotNodeContent
+                  Session.store <| Session.updateRepo model.key newRepo model.session
                 ]
             )
 
