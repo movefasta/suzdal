@@ -160,17 +160,17 @@ defaultRepos =
 
 
 list =
-    [ "traktovanie"
-    , "izdaniya"
+    [ "krugozor"
+    , "stili"
     , "sobytiya"
-    , "normativy"
-    , "zatevanie"
-    , "orgseti"
-    , "snabjenie"
+    , "normy"
+    , "teystviya"
+    , "torrenty"
+    , "osnascheniya"
     , "priverjiya"
-    , "resources"
+    , "sredstva"
     , "sobraniya"
-    , "ohrana"
+    , "opasnosti"
     , "propuska"
     ]
 
@@ -407,38 +407,38 @@ isChanged location changes =
 config : String -> Config msg
 config key =
     case key of
-        "traktovanie" ->
-            Config "Описание раздела трактования" "Трактование" "LimeGreen" Icons.crosshair
+        "krugozor" ->
+            Config "Описание раздела трактования" "Кругозор" "LimeGreen" Icons.crosshair
 
-        "izdaniya" ->
-            Config "Описание раздела изданий" "Издания" "LimeGreen" Icons.printer
+        "stili" ->
+            Config "Описание раздела изданий" "Стили" "LimeGreen" Icons.smile
 
         "sobytiya" ->
-            Config "Описание раздела событий" "События" "MediumOrchid" Icons.calendar
+            Config "Описание раздела событий" "События" "MediumOrchid" Icons.globe
 
-        "normativy" ->
-            Config "Описание раздела нормативов" "Нормативы" "MediumOrchid" Icons.globe
+        "normy" ->
+            Config "Описание раздела нормативов" "Нормы" "MediumOrchid" Icons.layers
 
-        "zatevanie" ->
-            Config "Описание раздела затевания" "Затевание" "LightSeaGreen" Icons.sun
+        "teystviya" ->
+            Config "Описание раздела затевания" "Тействия" "LightSeaGreen" Icons.activity
 
-        "orgseti" ->
-            Config "Описание раздела оргсетей" "Оргсети" "LightSeaGreen" Icons.mail
+        "torrenty" ->
+            Config "Описание раздела оргсетей" "Торренты" "LightSeaGreen" Icons.compass
 
-        "snabjenie" ->
-            Config "Описание раздела снабжения" "Снабжение" "OrangeRed" Icons.truck
+        "osnascheniya" ->
+            Config "Описание раздела снабжения" "Оснащения" "OrangeRed" Icons.tool
 
         "priverjiya" ->
             Config "Описание раздела привержий" "Привержия" "OrangeRed" Icons.heart
 
-        "resources" ->
-            Config "Описание раздела ресурсов" "Ресурсы" "SteelBlue" Icons.shoppingCart
+        "sredstva" ->
+            Config "Описание раздела ресурсов" "Средства" "SteelBlue" Icons.batteryCharging
 
         "sobraniya" ->
             Config "Описание раздела собраний" "Собрания" "SteelBlue" Icons.users
 
-        "ohrana" ->
-            Config "Описание раздела охраны" "Охрана" "Gold" Icons.lock
+        "opasnosti" ->
+            Config "Описание раздела охраны" "Опасности" "Gold" Icons.shield
 
         "propuska" ->
             Config "Описание раздела пропусков" "Пропуска" "Gold" Icons.key
