@@ -29,8 +29,12 @@ pathToUrl path =
 
 locationToString : String -> List Int -> String
 locationToString separator ints =
-    List.map String.fromInt ints
-        |> String.join separator
+    if List.isEmpty ints then
+        "root"
+
+    else
+        List.map String.fromInt ints
+            |> String.join separator
 
 
 
