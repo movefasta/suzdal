@@ -59,23 +59,11 @@ subscriptions model =
 
     else
         Sub.batch
-            [ Events.onKeyPress (Decode.map (\x -> KeyDowns x model.zipper) keyDecoder)
-
-            --, Animation.subscription Animate [ model.style ]
-            ]
-
-
-contentIsEditing : Remote (List Link) -> Bool
-contentIsEditing remote_list =
-    case remote_list of
-        Success content ->
-            List.any (\link -> Editing == link.status) content
-
-        _ ->
-            False
+            [ Events.onKeyPress (Decode.map (\x -> KeyDowns x model.zipper) keyDecoder) ]
 
 
 
+--, Animation.subscription Animate [ model.style ]
 -- INIT
 
 
@@ -181,13 +169,12 @@ type Msg
     | RemoveFocus DAG
     | UpdateParent DAG (Result Http.Error Node)
     | PassedSlowLoadThreshold
-    | RecursivePin Node
     | NodeChanged Node (Result Http.Error Bool)
     | GotCommitHash String (Result Http.Error Hash)
     | GotZone (Result Http.Error Time.Zone)
     | KeyDowns String (Remote DAG)
-    | PinDAG (Result Http.Error (List Node))
-    | FetchWholeDAG
+    | PinDAG (Result Http.Error (List String))
+    | FetchWholeDAG DAG
     | ShowChanges
     | DAGtoFileSystem DAG
     | NodeSaved DAG (Result Http.Error ())
@@ -216,11 +203,7 @@ update msg model =
     in
     case msg of
         RootHashRecursivelyPinned (Ok pins) ->
-            ( { model
-                | notifications = [ PinAdd <| "Успешно сохранены " ++ String.join ", " pins ]
-              }
-            , Cmd.none
-            )
+            ( { model | notifications = [ PinAdd <| "Успешно сохранено" ] }, Cmd.none )
 
         RootHashRecursivelyPinned (Err _) ->
             ( { model | notifications = [ ServerError "Не удалось сохранить" ] }, Cmd.none )
@@ -524,12 +507,9 @@ update msg model =
         AddTree _ (Err _) ->
             ( { model | notifications = [ ServerError "Ошибка загрузки дочерних ячеек" ] }, Cmd.none )
 
-        RecursivePin node ->
-            ( model, pinDAG url node [] |> Task.attempt PinDAG )
-
         PinDAG (Ok nodes) ->
             ( { model
-                | notifications = [ PinAdd <| "Успешно сохранено " ++ (String.fromInt <| List.length nodes) ++ " узлов" ]
+                | notifications = [ PinAdd <| "Репозиторий успешно закреплён в сети с адресом " ++ String.concat nodes ]
               }
             , Cmd.none
             )
@@ -578,7 +558,7 @@ update msg model =
                     , createCommit url model.session.settings.author upd_repo key <| "commit " ++ key
                     , fetchDAG url newPath
                     , Content.fetch url newPath GotNodeContent
-                    , Task.attempt RootHashRecursivelyPinned (pin url cid)
+                    , Task.attempt RootHashRecursivelyPinned (pinRepoTree url repo.tree cid)
                     ]
                 )
 
@@ -953,7 +933,6 @@ viewDAG model dag =
             [ alignTop, spacing 10 ]
             [ UI.Button.delete (not <| haveParent dag) <| RemoveFocus dag
             , UI.Button.save (Dict.isEmpty model.repo.unsaved) (Dict.size model.repo.unsaved) (DagPut dag)
-            , UI.Button.download <| RecursivePin <| Zipper.label dag
             , UI.Button.addNode <| Append dag
             ]
         , column
@@ -1847,40 +1826,32 @@ getTreeOnDepth url root depth tree =
             |> Task.andThen (\list -> Task.succeed <| Tree.replaceChildren list tree)
 
 
-pin : Url -> Hash -> Task Http.Error (List String)
-pin url hash =
-    Api.task "GET"
-        (Endpoint.pinAdd url hash)
-        Http.emptyBody
-        (Decode.field "Pins" <| Decode.list Decode.string)
 
-
-pinNode : Url -> Node -> Task Http.Error Node
-pinNode url node =
-    List.map (pin url) [ node.cid, node.links ]
-        |> Task.sequence
-        |> Task.andThen (\_ -> Task.succeed node)
-
-
-pinDAG : Url -> Node -> List Node -> Task Http.Error (List Node)
-pinDAG url node acc =
-    pinNode url node
-        |> Task.andThen (fetchChildren url)
+pinRepoTree : Url -> Hash -> Hash -> Task Http.Error (List String)
+pinRepoTree url old_hash new_hash =
+    isPinned url old_hash
         |> Task.andThen
-            (\nodes ->
-                if List.isEmpty nodes then
-                    Task.succeed (node :: acc)
+            (\pinned ->
+                Api.task "GET"
+                    (if pinned then
+                        Endpoint.pinUpdate url old_hash new_hash
 
-                else
-                    List.map (\x -> pinDAG url x (node :: acc)) nodes
-                        |> Task.sequence
-                        |> Task.andThen (Task.succeed << List.concat)
+                     else
+                        Endpoint.pinAdd url new_hash
+                    )
+                    Http.emptyBody
+                    (Decode.field "Pins" <| Decode.list Decode.string)
             )
 
 
 fetchChildren : Url -> Node -> Task Http.Error (List Node)
 fetchChildren url node =
     Api.task "GET" (Endpoint.dagGet url node.links) Http.emptyBody (Decode.list nodeDecoder)
+isPinned : Url -> Hash -> Task Http.Error Bool
+isPinned url hash =
+    Decode.field "Keys" (Decode.dict (Decode.field "Type" Decode.string))
+        |> Api.task "GET" (Endpoint.pinLs url Nothing) Http.emptyBody
+        |> Task.andThen (Task.succeed << Dict.member hash)
 
 
 createCommit : Url -> Repo.Author -> Repo -> String -> String -> Cmd Msg
@@ -2121,7 +2092,7 @@ newChild zipper =
     , cid = "zdpuAtQy7GSHNcZxdBfmtowdL1d2WAFjJBwb6WAEfFJ6T4Gbi" --empty content list
     , links = "zdpuAtQy7GSHNcZxdBfmtowdL1d2WAFjJBwb6WAEfFJ6T4Gbi" --empty links list
     , size = 0
-    , description = ""
+    , description = "Новая ячейка"
     , color = 0
     , location = location
     , expanded = False
@@ -2160,37 +2131,6 @@ getContexts zipper acc =
 
         Nothing ->
             [ Zipper.label zipper ] :: appendChildren
-
-
-keyAction : String -> DAG -> DAG
-keyAction code zipper =
-    let
-        label =
-            Zipper.label zipper
-
-        --function =
-        --    case code of
-        --        "a" ->
-        --            Zipper.previousSibling
-        --        "d" ->
-        --            Zipper.nextSibling
-        --        "w" ->
-        --            Zipper.parent
-        --        "s" ->
-        --            Zipper.firstChild
-        --        "F2" ->
-        --            \_ -> Just <| Zipper.replaceLabel { label | editing = True } zipper
-        --        "Escape" ->
-        --            \_ -> Just <| Zipper.replaceLabel { label | editing = False } zipper
-        --        _ ->
-        --            \_ -> Just zipper
-    in
-    case String.toInt code of
-        Just int ->
-            Zipper.replaceLabel { label | color = int } zipper
-
-        Nothing ->
-            zipper
 
 
 viewRemote : Element Msg -> (a -> Element Msg) -> Remote a -> Element Msg

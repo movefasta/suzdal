@@ -158,7 +158,7 @@ pinAdd url hash =
 
 add : Url -> Endpoint
 add url =
-    urlBuilder (endpoint url) [ "add" ] [ Url.Builder.string "pin" "true" ]
+    urlBuilder (endpoint url) [ "add" ] [ Url.Builder.string "pin" "false" ]
 
 
 repoStat : Url -> Endpoint
@@ -166,9 +166,18 @@ repoStat url =
     urlBuilder (endpoint url) [ "repo", "stat" ] []
 
 
-pinLs : Url -> String -> Endpoint
-pinLs url hash =
-    urlBuilder (endpoint url) [ "pin", "ls" ] [ Url.Builder.string "arg" hash ]
+pinLs : Url -> Maybe String -> Endpoint
+pinLs url maybe_hash =
+    let
+        arg =
+            case maybe_hash of
+                Just hash ->
+                    [ Url.Builder.string "arg" hash ]
+
+                Nothing ->
+                    []
+    in
+    urlBuilder (endpoint url) [ "pin", "ls" ] <| Url.Builder.string "type" "recursive" :: arg
 
 
 pinRm : Url -> String -> Endpoint
@@ -176,9 +185,14 @@ pinRm url hash =
     urlBuilder (endpoint url) [ "pin", "rm" ] [ Url.Builder.string "arg" hash ]
 
 
-pinUpdate : Url -> String -> Endpoint
-pinUpdate url hash =
-    urlBuilder (endpoint url) [ "pin", "update" ] [ Url.Builder.string "arg" hash ]
+pinUpdate : Url -> String -> String -> Endpoint
+pinUpdate url old_hash new_hash =
+    urlBuilder (endpoint url)
+        [ "pin", "update" ]
+        [ Url.Builder.string "arg" old_hash
+        , Url.Builder.string "arg" new_hash
+        , Url.Builder.string "unpin" "true"
+        ]
 
 
 pinVerify : Url -> String -> Endpoint
