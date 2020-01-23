@@ -1,4 +1,4 @@
-module Repo exposing (Author, Changes, Commit, Node, Remote(..), Repo, authorDecoder, authorEncoder, commitDecoder, commitEncoder, defaultRepos, encoder, fetchChildren, ipldNodeEncoder, isChanged, label, list, menuLink, nodeDecoder, nodeEncoderForLocalStorage, pathToNodeFolder, repoDecoder, reposDecoder, reposEncoder, store, storeDefaultRepos, template)
+module Repo exposing (Author, Changes, Commit, Node, Remote(..), Repo, authorDecoder, authorEncoder, commitDecoder, commitEncoder, defaultRepos, encoder, fetchChildren, ipldNodeEncoder, label, list, menuLink, nodeChanged, nodeDecoder, nodeEncoderForLocalStorage, pathToNodeFolder, repoDecoder, reposDecoder, reposEncoder, store, storeDefaultRepos, template)
 
 import Api exposing (Hash)
 import Api.Endpoint as Endpoint
@@ -15,6 +15,7 @@ import Json.Decode.Pipeline as Pipeline exposing (hardcoded, optional, required,
 import Json.Encode as Encode exposing (Value)
 import Task exposing (Task)
 import Time
+import Tree exposing (Tree)
 import Tree.Zipper as Zipper exposing (Zipper)
 import UI.Colors as Colors
 import UI.Fonts
@@ -41,18 +42,6 @@ type alias Repo =
     , head : Maybe Hash
     , unsaved : Changes
     }
-
-
-type Remote a
-    = NotAsked
-    | Loading
-    | LoadingSlowly
-    | Success a
-    | Failed String
-
-
-type alias Changes =
-    Dict (List Int) Node
 
 
 type alias Commit =
@@ -90,6 +79,35 @@ type alias Config msg =
     , color : String
     , icon : Html msg
     }
+
+
+type Remote a
+    = NotAsked
+    | Loading
+    | LoadingSlowly
+    | Success a
+    | Failed String
+
+
+type alias Changes =
+    Dict (List Int) (Tree Node)
+
+
+
+--applyChangeToDAG : NodeAction -> DAG -> DAG
+--applyChangeToDAG action zipper =
+--    case action of
+--        Modified node ->
+--            Zipper.findFromRoot node.location zipper
+--                |> Zipper.replaceTree
+--        Added node ->
+
+
+type NodeAction
+    = Modified Node
+    | Added Node
+    | Deleted Node
+    | Moved { from : Node, to : Node }
 
 
 
@@ -179,7 +197,7 @@ template : String -> Repo
 template key =
     { name = .title <| config key
     , description = .description <| config key
-    , tree = "bafyreif4qskffnc7wy2n3l2pzqkuptea4rvixrenkgsymsnv3qffcgrz5q"
+    , tree = "bafyreichkwxwfwt2mbsiesolneyiu7wei3d7loiaukltsmkwavrrobj2ie"
     , location = []
     , icon = Nothing
     , head = Nothing
@@ -224,10 +242,10 @@ encodeChanges : Changes -> Encode.Value
 encodeChanges changes =
     Dict.toList changes
         |> Encode.list
-            (\( location, node ) ->
+            (\( location, tree ) ->
                 Encode.object
-                    [ ( "location", Encode.list Encode.int location )
-                    , ( "node", ipldNodeEncoder node )
+                    [ ( "label", ipldNodeEncoder (Tree.label tree) )
+                    , ( "children", Encode.list ipldNodeEncoder (List.map Tree.label <| Tree.children tree) )
                     ]
             )
 
@@ -355,14 +373,14 @@ nodeDecoder =
 
 
 type alias JsonChange =
-    { location : List Int, node : Node }
+    { label : Node, children : List Node }
 
 
 jsonChangeDecode : Decoder JsonChange
 jsonChangeDecode =
     Decode.succeed JsonChange
-        |> required "location" (Decode.list Decode.int)
-        |> required "node" nodeDecoder
+        |> required "label" nodeDecoder
+        |> required "children" (Decode.list nodeDecoder)
 
 
 decodeChanges : Decoder Changes
@@ -373,7 +391,7 @@ decodeChanges =
 
 jsonChangesToDict : List JsonChange -> Changes
 jsonChangesToDict =
-    Dict.fromList << List.map (\change -> ( change.location, change.node ))
+    Dict.fromList << List.map (\change -> ( change.label.location, Tree.tree change.label <| List.map Tree.singleton change.children ))
 
 
 
@@ -399,8 +417,8 @@ pathToRepo key =
         |> String.append "/"
 
 
-isChanged : List Int -> Changes -> Bool
-isChanged location changes =
+nodeChanged : List Int -> Changes -> Bool
+nodeChanged location changes =
     Dict.member location changes
 
 

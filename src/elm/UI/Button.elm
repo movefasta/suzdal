@@ -1,4 +1,4 @@
-module UI.Button exposing (add, addFile, addNode, addTextFile, button, delete, download, next, refresh, save)
+module UI.Button exposing (add, addFile, addNode, addTextFile, button, delete, diffTree, download, next, refresh, save)
 
 import Element as E exposing (..)
 import Element.Background as Background
@@ -46,6 +46,7 @@ type Icon
     | None
     | AddFile
     | AddTextFile
+    | PullRequest
 
 
 type Size
@@ -134,6 +135,16 @@ addNode msg =
         |> withSize Medium
         |> withIcon Add
         |> withTitle "Добавить дочернюю ячейку"
+        |> renderButton
+
+
+diffTree : msg -> Element msg
+diffTree msg =
+    Button defaultOptions msg
+        |> withRole Info
+        |> withSize Medium
+        |> withIcon PullRequest
+        |> withTitle "Сравнить деревья"
         |> renderButton
 
 
@@ -327,6 +338,9 @@ renderIcon size icon =
 
                 AddTextFile ->
                     Icons.fileText
+
+                PullRequest ->
+                    Icons.gitPullRequest
 
                 None ->
                     Html.div [] []

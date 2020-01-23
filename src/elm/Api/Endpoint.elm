@@ -1,4 +1,4 @@
-module Api.Endpoint exposing (Endpoint, add, changeLog, config, configSet, connect, content, dagGet, dagPut, file, filesLs, filesRead, filesWrite, getContent, getInitRepos, id, node, objectGet, pinAdd, pinLs, pinUpdate, pinVerify, publish, repoStat, request, resolve, swarmPeers, task, unwrap)
+module Api.Endpoint exposing (Endpoint, add, changeLog, cluster, config, configSet, connect, content, dagGet, dagPut, file, filesLs, filesRead, filesWrite, getContent, getInitRepos, id, links, node, objectGet, pinAdd, pinLs, pinUpdate, pinVerify, publish, repoStat, request, resolve, swarmPeers, task, unwrap)
 
 import Http
 import Json.Encode as Encode
@@ -116,6 +116,22 @@ content url path =
         |> Endpoint
 
 
+links : Url -> Route.Path -> Endpoint
+links url path =
+    let
+        location =
+            List.map (\s -> "links/" ++ String.fromInt s) path.location
+                |> String.join "/"
+    in
+    endpoint url
+        ++ "/dag/get?arg="
+        ++ path.cid
+        ++ "/"
+        ++ location
+        ++ "/links"
+        |> Endpoint
+
+
 node : Url -> Route.Path -> Endpoint
 node url path =
     let
@@ -228,6 +244,11 @@ endpoint url =
 gateway : Url -> String
 gateway url =
     Url.toString { url | port_ = Just 8080, path = "/ipfs", fragment = Nothing }
+
+
+cluster : Url -> String
+cluster url =
+    Url.toString { url | port_ = Just 9094, path = "", fragment = Nothing }
 
 
 unwrap : Endpoint -> String

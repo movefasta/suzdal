@@ -1,4 +1,4 @@
-module Content exposing (Content, Link, Status(..), addText, contentEncoder, contentSize, fetch, fetchByCid, pickFiles, update, uploadText)
+module Content exposing (Content, Link, Status(..), addFiles, addText, contentEncoder, contentSize, fetch, fetchByCid, getCid, pickFiles, update, uploadText)
 
 import Api exposing (Hash, jsonToHttpBody)
 import Api.Endpoint as Endpoint exposing (Endpoint)
@@ -168,6 +168,22 @@ update url content newfiles =
                 in
                 Api.task "POST" (Endpoint.dagPut url) body (Decode.at [ "Cid", "/" ] Decode.string)
             )
+
+
+getCid : Url -> Content -> Task Http.Error String
+getCid url content =
+    Api.task "POST"
+        (Endpoint.dagPut url)
+        (content |> contentEncoder |> jsonToHttpBody)
+        (Decode.at [ "Cid", "/" ] Decode.string)
+
+
+addFiles : Url -> Content -> List File -> Task Http.Error Content
+addFiles url content files =
+    List.map (uploadFile <| Endpoint.add url) files
+        |> Task.sequence
+        |> Task.andThen
+            (\list -> Task.succeed <| List.indexedMap (\i a -> { a | id = i }) (list ++ content))
 
 
 fetch : Url -> Path -> (Result Http.Error Content -> msg) -> Cmd msg
