@@ -1,4 +1,4 @@
-module Repo exposing (Author, Changes, Commit, Node, Remote(..), Repo, authorDecoder, authorEncoder, commitDecoder, commitEncoder, defaultRepos, encoder, fetchChildren, ipldNodeEncoder, label, list, menuLink, nodeChanged, nodeDecoder, nodeEncoderForLocalStorage, pathToNodeFolder, repoDecoder, reposDecoder, reposEncoder, store, storeDefaultRepos, template)
+module Repo exposing (Author, Changes, Commit, Draft, Node, Remote(..), Repo, authorDecoder, authorEncoder, commitDecoder, commitEncoder, defaultRepos, encoder, fetchChildren, ipldNodeEncoder, label, list, menuLink, nodeChanged, nodeDecoder, nodeEncoderForLocalStorage, pathToNodeFolder, repoDecoder, reposDecoder, reposEncoder, store, storeDefaultRepos, template)
 
 import Api exposing (Hash)
 import Api.Endpoint as Endpoint
@@ -40,6 +40,7 @@ type alias Repo =
     , location : List Int
     , icon : Maybe Hash
     , head : Maybe Hash
+    , draft : Maybe (Tree Node)
     , unsaved : Changes
     }
 
@@ -90,7 +91,23 @@ type Remote a
 
 
 type alias Changes =
-    Dict (List Int) (Tree Node)
+    Dict (List Int) Node
+
+
+type alias Draft =
+    Maybe (Tree Node)
+
+
+toChanges : Draft -> Tree Node -> Changes
+toChanges draft remote_tree =
+    case draft of
+        Just tree ->
+            Tree.flatten tree
+                |> List.map (\node -> ( node.location, node ))
+                |> Dict.fromList
+
+        Nothing ->
+            Dict.empty
 
 
 
@@ -201,6 +218,7 @@ template key =
     , location = []
     , icon = Nothing
     , head = Nothing
+    , draft = Nothing
     , unsaved = Dict.empty
     }
 
@@ -223,6 +241,7 @@ encoder repo =
         , ( "location", Encode.list Encode.int repo.location )
         , ( "icon", makeNullable ipldLinkEncoder repo.icon )
         , ( "head", makeNullable ipldLinkEncoder repo.head )
+        , ( "draft", makeNullable treeEncoder repo.draft )
         , ( "unsaved", encodeChanges repo.unsaved )
         ]
 
@@ -236,18 +255,6 @@ commitEncoder commit =
         , ( "parent", makeNullable ipldLinkEncoder commit.parent )
         , ( "tree", ipldLinkEncoder commit.tree )
         ]
-
-
-encodeChanges : Changes -> Encode.Value
-encodeChanges changes =
-    Dict.toList changes
-        |> Encode.list
-            (\( location, tree ) ->
-                Encode.object
-                    [ ( "label", ipldNodeEncoder (Tree.label tree) )
-                    , ( "children", Encode.list ipldNodeEncoder (List.map Tree.label <| Tree.children tree) )
-                    ]
-            )
 
 
 authorEncoder : Author -> Value
@@ -270,6 +277,13 @@ ipldLinkEncoder hash =
     Encode.object [ ( "/", Encode.string hash ) ]
 
 
+encodeChanges : Changes -> Value
+encodeChanges changes =
+    Dict.toList changes
+        |> List.map (\( k, v ) -> { v | location = k })
+        |> Encode.list nodeEncoderForLocalStorage
+
+
 nodeEncoderForLocalStorage : Node -> Encode.Value
 nodeEncoderForLocalStorage node =
     Encode.object
@@ -279,6 +293,7 @@ nodeEncoderForLocalStorage node =
         , ( "name", Encode.string node.name )
         , ( "size", Encode.int node.size )
         , ( "color", Encode.int node.color )
+        , ( "location", Encode.list Encode.int node.location )
         ]
 
 
@@ -291,7 +306,8 @@ ipldNodeEncoder node =
         , ( "name", Encode.string node.name )
         , ( "size", Encode.int node.size )
         , ( "color", Encode.int node.color )
-        , ( "location", Encode.list Encode.int node.location )
+
+        --, ( "location", Encode.list Encode.int node.location )
         ]
 
 
@@ -323,7 +339,16 @@ repoDecoder =
         |> optional "location" (Decode.list Decode.int) []
         |> required "icon" ipldLinkDecoder
         |> required "head" ipldLinkDecoder
-        |> optional "unsaved" decodeChanges Dict.empty
+        |> optional "draft" decodeDraft Nothing
+        |> required "unsaved" lsChangesDecoder
+
+
+lsChangesDecoder : Decoder Changes
+lsChangesDecoder =
+    nodeDecoder
+        |> Decode.map (\node -> Tuple.pair node.location node)
+        |> Decode.list
+        |> Decode.map Dict.fromList
 
 
 repoToNode : Repo -> Node
@@ -372,26 +397,24 @@ nodeDecoder =
         |> hardcoded False
 
 
-type alias JsonChange =
-    { label : Node, children : List Node }
+treeEncoder : Tree Node -> Encode.Value
+treeEncoder tree =
+    Encode.object
+        [ ( "label", ipldNodeEncoder <| Tree.label tree )
+        , ( "children", Encode.list treeEncoder (Tree.children tree) )
+        ]
 
 
-jsonChangeDecode : Decoder JsonChange
-jsonChangeDecode =
-    Decode.succeed JsonChange
-        |> required "label" nodeDecoder
-        |> required "children" (Decode.list nodeDecoder)
+decodeDraft : Decoder (Maybe (Tree Node))
+decodeDraft =
+    Decode.nullable decodeTree
 
 
-decodeChanges : Decoder Changes
-decodeChanges =
-    Decode.list jsonChangeDecode
-        |> Decode.andThen (Decode.succeed << jsonChangesToDict)
-
-
-jsonChangesToDict : List JsonChange -> Changes
-jsonChangesToDict =
-    Dict.fromList << List.map (\change -> ( change.label.location, Tree.tree change.label <| List.map Tree.singleton change.children ))
+decodeTree : Decode.Decoder (Tree Node)
+decodeTree =
+    Decode.map2 Tree.tree
+        (Decode.field "label" nodeDecoder)
+        (Decode.field "children" (Decode.lazy (\_ -> Decode.list decodeTree)))
 
 
 

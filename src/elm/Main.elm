@@ -46,7 +46,7 @@ init value url navKey =
     in
     case decodeResult of
         Ok session ->
-            stepUrl url { key = navKey, page = Home session }
+            stepUrl url { key = navKey, page = Home <| Debug.log "SESSION from localStorage" session }
 
         Err _ ->
             ( Model navKey (Welcome { session = Session.default url, name = "", email = "" }), Cmd.none )
