@@ -155,7 +155,7 @@ type Notification
 
 type Msg
     = NoOp
-    | DagPut DAG
+    | Pin DAG
     | GotNewRootHash String Repo (Result Http.Error Hash)
     | GotUpdatedContentHash DAG (Result Http.Error Hash)
     | GotNodeContent (Result Http.Error Content)
@@ -312,13 +312,16 @@ update msg model =
         GotDAG (Ok dag) ->
             ( { model | zipper = Success dag }, Content.fetchByCid url (.cid <| Zipper.label dag) GotNodeContent )
 
-        GotDAG (Err _) ->
+        GotDAG (Err error) ->
             ( { model
-                | notifications = [ ServerError "Не удалось загрузить искомую ячейку. Загружен корневой раздел" ]
+                | zipper = Failed error
+
+                --, notifications = [ ServerError "Не удалось загрузить искомую ячейку. Загружен корневой раздел" ]
                 , repo = { repo | location = [] }
                 , session = Session.updateRepo model.key { repo | location = [] } model.session
               }
-            , fetchDAG url { cid = repo.tree, location = [] } model.repo.unsaved
+            , Cmd.none
+              --, fetchDAG url { cid = repo.tree, location = [] } model.repo.unsaved
             )
 
         GotLog (Ok log) ->
@@ -400,7 +403,7 @@ update msg model =
                         updateLinksHash url parent
 
                     Nothing ->
-                        fetchChildren url (Maybe.withDefault zipper (setFocus repo.location zipper)) model.repo.unsaved
+                        fetchChildren url (Maybe.withDefault zipper (setFocus repo.location zipper)) unsaved_changes
                             |> Task.attempt GotDAG
                 ]
             )
@@ -443,7 +446,7 @@ update msg model =
                 ( { model | repo = newRepo, session = Session.updateRepo model.key newRepo model.session }, Cmd.none )
 
             else
-                update (UpdateFocus <| Zipper.replaceLabel { node | cid = cid } zipper) model
+                ( model, checkNodeForChanges url repo.tree (Zipper.replaceLabel { node | cid = cid } zipper) )
 
         GotUpdatedContentHash _ (Err _) ->
             ( { model | notifications = [ ServerError "Ошибка запроса хэша файлов (GotUpdatedContentHash Msg)" ] }, Cmd.none )
@@ -500,7 +503,6 @@ update msg model =
             let
                 newTree =
                     Tree.mapLabel (\x -> { x | expanded = False }) tree
-                        |> Debug.log "ADDED TREE"
             in
             ( { model | zipper = Success (Zipper.replaceTree newTree zipper) }, Cmd.none )
 
@@ -613,15 +615,11 @@ update msg model =
             in
             ( { model | content = loading model.content, zipper = loading model.zipper }, Cmd.none )
 
-        DagPut zipper ->
-            let
-                rootbody =
-                    jsonToHttpBody << ipldNodeEncoder << Zipper.label
-            in
+        Pin zipper ->
             ( model
             , Cmd.batch
                 [ Decode.at [ "Cid", "/" ] Decode.string
-                    |> Api.task "POST" (Endpoint.dagPut url) (rootbody zipper)
+                    |> Api.task "POST" (Endpoint.dagPut url) (jsonToHttpBody <| ipldNodeEncoder <| Zipper.label zipper)
                     |> Task.attempt (GotNewRootHash model.key model.repo)
                 , Task.perform (\_ -> PassedSlowLoadThreshold) Loading.slowThreshold
                 ]
@@ -941,8 +939,7 @@ viewDAG model dag =
                     [ case model.dagRenderStyle of
                         AsTree ->
                             viewDAGasTree dag []
-                                |> List.map
-                                    (row [ width fill, height fill, spacing 5 ] << List.map isCrumb)
+                                |> List.map (row [ width fill, height fill, spacing 5 ] << List.map isCrumb)
                                 |> column
                                     [ width fill
                                     , spacing 5
@@ -967,7 +964,7 @@ viewDAG model dag =
 
                 Nothing ->
                     UI.Button.delete True NoOp
-            , UI.Button.save (Dict.isEmpty model.repo.unsaved) (Dict.size model.repo.unsaved) (DagPut <| Zipper.root dag)
+            , UI.Button.save (Dict.isEmpty model.repo.unsaved) (Dict.size model.repo.unsaved) (Pin <| Zipper.root dag)
             , UI.Button.addNode <| Append (appendChild dag)
             , UI.Button.download <| FetchWholeDAG dag
             , case model.dagRenderStyle of
@@ -1658,7 +1655,7 @@ fetchChildren url zipper changes =
     in
     Decode.list nodeToTree
         |> Api.task "GET" (Endpoint.dagGet url node.links) Http.emptyBody
-        |> Task.andThen (Task.succeed << indexChildren << Tree.tree node << Debug.log "fetchedChildren")
+        |> Task.andThen (Task.succeed << indexChildren << Tree.tree node)
         |> Task.andThen (\tree -> Task.succeed <| Zipper.replaceTree tree zipper)
 
 
@@ -1677,7 +1674,7 @@ getTreeOnDepth url depth tree =
     else
         Tree.label tree
             |> getChildren url
-            |> Task.andThen (Task.sequence << List.map (getTreeOnDepth url (depth - 1)) << Tree.children << Debug.log "DEPTH")
+            |> Task.andThen (Task.sequence << List.map (getTreeOnDepth url (depth - 1)) << Tree.children)
             |> Task.andThen (\list -> Task.succeed <| Tree.replaceChildren list tree)
 
 
@@ -1775,7 +1772,7 @@ fromMaybe : String -> Maybe a -> Remote a
 fromMaybe error maybe =
     case maybe of
         Nothing ->
-            Failed error
+            Failed (Http.BadUrl error)
 
         Just x ->
             Success x
@@ -2240,8 +2237,23 @@ viewRemote loader viewer remotecontent =
         LoadingSlowly ->
             loader
 
-        Failed message ->
-            Loading.failed message
+        Failed error ->
+            Loading.failed <|
+                case error of
+                    Http.BadUrl str ->
+                        "Ошибка адреса ( " ++ str ++ " )"
+
+                    Http.Timeout ->
+                        "Истекло время ожидания"
+
+                    Http.NetworkError ->
+                        "Не получен ответ от IPFS, перезапустите приложение или включите IPFS"
+
+                    Http.BadStatus i ->
+                        "Код ответа сервера " ++ String.fromInt i
+
+                    Http.BadBody str ->
+                        "Некорректное тело запроса ( " ++ str ++ " )"
 
         _ ->
             none

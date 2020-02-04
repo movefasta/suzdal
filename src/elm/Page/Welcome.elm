@@ -89,9 +89,7 @@ update msg model =
         Save ->
             ( { model | session = Session.updateAuthor author model.session }
             , Cmd.batch
-                [ saveAuthor url author
-                , Session.store (Session.updateAuthor author session)
-                ]
+                [ Session.store (Session.updateAuthor author session) ]
             )
 
         SavedToStorage _ ->

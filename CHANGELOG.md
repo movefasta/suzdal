@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.0] - 2020-02-05
+
+### Added
+- animation enabling option
+
+### Changed
+- pin management; now repo repin previous one
+- hashes of parent nodes now recalc on every current node change
+- default repos icons
+
+### Fixed
+- unsaved changes management
+- input form now doesn't change color of focused node
+
 ## [0.3.0] - 2019-12-31
 
 ### Added

@@ -87,7 +87,7 @@ type Remote a
     | Loading
     | LoadingSlowly
     | Success a
-    | Failed String
+    | Failed Http.Error
 
 
 type alias Changes =
