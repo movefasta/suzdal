@@ -1,4 +1,4 @@
-module UI.Button exposing (add, addFile, addNode, addTextFile, button, delete, diffTree, download, next, refresh, save)
+module UI.Button exposing (add, addFile, addNode, addTextFile, button, delete, diffTree, download, next, refresh, renderDAGasTable, renderDAGasTree, save)
 
 import Element as E exposing (..)
 import Element.Background as Background
@@ -47,6 +47,8 @@ type Icon
     | AddFile
     | AddTextFile
     | PullRequest
+    | Grid
+    | ChevronUp
 
 
 type Size
@@ -145,6 +147,26 @@ diffTree msg =
         |> withSize Medium
         |> withIcon PullRequest
         |> withTitle "Сравнить деревья"
+        |> renderButton
+
+
+renderDAGasTree : msg -> Element msg
+renderDAGasTree msg =
+    Button defaultOptions msg
+        |> withRole Info
+        |> withSize Medium
+        |> withIcon ChevronUp
+        |> withTitle "Показать в виде дерева"
+        |> renderButton
+
+
+renderDAGasTable : msg -> Element msg
+renderDAGasTable msg =
+    Button defaultOptions msg
+        |> withRole Info
+        |> withSize Medium
+        |> withIcon Grid
+        |> withTitle "Показать в виде таблицы"
         |> renderButton
 
 
@@ -341,6 +363,12 @@ renderIcon size icon =
 
                 PullRequest ->
                     Icons.gitPullRequest
+
+                Grid ->
+                    Icons.grid
+
+                ChevronUp ->
+                    Icons.chevronsUp
 
                 None ->
                     Html.div [] []

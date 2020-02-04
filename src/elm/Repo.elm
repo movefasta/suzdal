@@ -110,16 +110,6 @@ toChanges draft remote_tree =
             Dict.empty
 
 
-
---applyChangeToDAG : NodeAction -> DAG -> DAG
---applyChangeToDAG action zipper =
---    case action of
---        Modified node ->
---            Zipper.findFromRoot node.location zipper
---                |> Zipper.replaceTree
---        Added node ->
-
-
 type NodeAction
     = Modified Node
     | Added Node

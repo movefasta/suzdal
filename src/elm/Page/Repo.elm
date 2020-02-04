@@ -190,7 +190,13 @@ type Msg
     | GotNewContent DAG (Result Http.Error (List Link))
     | GotTree (Tree Node) (Result Http.Error (Tree Node))
     | DiffFocusedTree DAG
+    | SetRenderStyle DAG DAGstyle
     | Animate Animation.Msg
+
+
+type DAGstyle
+    = AsTable
+    | AsTree
 
 
 
@@ -213,9 +219,12 @@ update msg model =
             model.session.url
     in
     case msg of
+        SetRenderStyle zipper style ->
+            ( { model | dagRenderStyle = style }, Task.attempt (AddSubTree zipper) <| getTreeOnDepth url 2 (Zipper.tree zipper) )
 
         Animate animMsg ->
             ( { model | style = Animation.update animMsg model.style }, Cmd.none )
+
         RootHashRecursivelyPinned (Ok pins) ->
             ( { model | notifications = [ PinAdd <| "Успешно сохранено" ] }, Cmd.none )
 
@@ -262,7 +271,9 @@ update msg model =
             )
 
         DiffFocusedTree dag ->
-            ( model, fetchTree url { cid = repo.tree, location = .location <| Zipper.label dag } (Debug.log "tree for DIFF" <| oneLevelTree dag) )
+            ( model
+            , fetchTree url { cid = repo.tree, location = .location <| Zipper.label dag } (oneLevelTree dag)
+            )
 
         GotTree new_tree (Ok old_tree) ->
             ( { model | diff = Just <| Tree.Diff.diff old_tree new_tree }, Cmd.none )
@@ -442,13 +453,14 @@ update msg model =
                 ( cmd, newZipper ) =
                     case setFocus node.location zipper of
                         Just focus ->
-                            ( if List.isEmpty <| Zipper.children focus then
-                                getChildren url { node | expanded = True }
-                                    |> Task.attempt (AddSubTree focus)
+                            ( Task.attempt (AddSubTree focus) <|
+                                case model.dagRenderStyle of
+                                    AsTable ->
+                                        getTreeOnDepth url 2 (Zipper.tree <| Zipper.replaceLabel node focus)
 
-                              else
-                                Cmd.none
-                            , Success <| Zipper.replaceLabel node focus
+                                    AsTree ->
+                                        getChildren url { node | expanded = True }
+                            , Success focus
                               -- ^ label replaced for accept node editing status
                             )
 
@@ -456,7 +468,7 @@ update msg model =
                             ( fetchDAG url { cid = repo.tree, location = node.location } model.repo.unsaved, Loading )
             in
             if node.location == model.repo.location then
-                ( { model | zipper = newZipper, showchanges = False }
+                ( { model | zipper = Success <| Zipper.replaceLabel node zipper, showchanges = False }
                 , if node.editing then
                     Dom.focus (Route.locationToString "/" node.location)
                         |> Task.attempt (\_ -> NoOp)
@@ -488,6 +500,7 @@ update msg model =
             let
                 newTree =
                     Tree.mapLabel (\x -> { x | expanded = False }) tree
+                        |> Debug.log "ADDED TREE"
             in
             ( { model | zipper = Success (Zipper.replaceTree newTree zipper) }, Cmd.none )
 
@@ -605,7 +618,7 @@ update msg model =
                 rootbody =
                     jsonToHttpBody << ipldNodeEncoder << Zipper.label
             in
-            ( { model | zipper = Loading }
+            ( model
             , Cmd.batch
                 [ Decode.at [ "Cid", "/" ] Decode.string
                     |> Api.task "POST" (Endpoint.dagPut url) (rootbody zipper)
@@ -806,7 +819,13 @@ viewCrumbs node zipper =
             getCrumbs focus []
                 |> (\nodes -> List.drop (List.length nodes - 3) nodes)
                 |> List.map (viewCrumbAsButton zipper)
-                |> List.append [ el [ Font.bold ] <| text "..." ]
+                |> (\cells ->
+                        if List.length (getCrumbs focus []) > 3 then
+                            List.append [ el [ Font.bold ] <| text "..." ] cells
+
+                        else
+                            cells
+                   )
                 |> List.intersperse (text "/")
                 |> wrappedRow
                     [ spacing 7
@@ -816,10 +835,6 @@ viewCrumbs node zipper =
 
         Nothing ->
             none
-
-
-
---text "Can't find this cell"
 
 
 viewCrumbAsButton : DAG -> Node -> Element Msg
@@ -882,7 +897,7 @@ viewDAG : Model -> DAG -> Element Msg
 viewDAG model dag =
     let
         isCrumb node =
-            el (cellStyle node model.repo.unsaved dag) <| viewCell model.session.settings.shownodeprops node dag
+            el (cellStyle node model.repo.unsaved dag) <| viewCell model.session.settings.shownodeprops dag node
 
         focus =
             Zipper.label dag
@@ -923,13 +938,18 @@ viewDAG model dag =
                     , height fill
                     , scrollbarY
                     ]
-                    [ getContexts dag []
-                        |> List.map
-                            (row [ width fill, height fill, spacing 5 ] << List.map isCrumb)
-                        |> column
-                            [ width fill
-                            , spacing 5
-                            ]
+                    [ case model.dagRenderStyle of
+                        AsTree ->
+                            viewDAGasTree dag []
+                                |> List.map
+                                    (row [ width fill, height fill, spacing 5 ] << List.map isCrumb)
+                                |> column
+                                    [ width fill
+                                    , spacing 5
+                                    ]
+
+                        AsTable ->
+                            viewDAGasTable dag
                     , viewNodeProps dag model.session.settings.shownodeprops
                     , if model.session.settings.shownodeprops then
                         row [] [ text "Общее количество ячеек в дереве: ", text <| String.fromInt <| countNodes dag ]
@@ -950,6 +970,12 @@ viewDAG model dag =
             , UI.Button.save (Dict.isEmpty model.repo.unsaved) (Dict.size model.repo.unsaved) (DagPut <| Zipper.root dag)
             , UI.Button.addNode <| Append (appendChild dag)
             , UI.Button.download <| FetchWholeDAG dag
+            , case model.dagRenderStyle of
+                AsTree ->
+                    UI.Button.renderDAGasTable <| SetRenderStyle dag AsTable
+
+                AsTable ->
+                    UI.Button.renderDAGasTree <| SetRenderStyle dag AsTree
 
             --, UI.Button.diffTree <| DiffFocusedTree dag
             ]
@@ -1073,8 +1099,8 @@ viewCrumbAsLink root node =
         }
 
 
-viewCell : Bool -> Node -> DAG -> Element Msg
-viewCell shownodeprops node dag =
+viewCell : Bool -> DAG -> Node -> Element Msg
+viewCell shownodeprops dag node =
     if node.editing then
         Input.multiline
             [ height
@@ -1415,87 +1441,67 @@ fontBy size =
         []
 
 
+viewDAGasTable : DAG -> Element Msg
+viewDAGasTable zipper =
+    let
+        tree =
+            Zipper.tree zipper
 
---viewTable : Path -> Tree Node -> Element Msg
---viewTable path tree =
---    let
---        alpha =
---            0.8
---    in
---    column
---        [ height fill
---        , width fill
---        , spacing 5
---        , alignTop
---        ]
---        [ viewCell (Tree.label tree)
---            |> el
---                [ Font.color <| darkGrey 1.0
---                , width fill
---                , height fill
---                ]
---        , Tree.children tree
---            |> List.map (viewSector path)
---            |> column
---                [ width fill
---                , height fill
---                ]
---        ]
---viewSector : Path -> Tree Node -> Element Msg
---viewSector path tree =
---    let
---        node =
---            Tree.label tree
---        childMap child =
---            let
---                child_node =
---                    Tree.label child
---            in
---            row
---                [ spacing 5
---                , padding 5
---                , width fill
---                , height fill
---                , Background.color <| lightGrey 0.5
---                , htmlAttribute <| Html.Attributes.style "overflow-wrap" "inherit"
---                ]
---            <|
---                [ viewCell child_node ]
---                    ++ (List.map
---                            (\x ->
---                                if node.expanded then
---                                    viewCell (Tree.label x)
---                                else
---                                    none
---                            )
---                        <|
---                            Tree.children child
---                       )
---    in
---    column
---        [ spacing 3
---        , width fill
---        , height fill
---        ]
---        [ el
---            [ Font.size 20
---            , Font.color <| darkGrey 1.0
---            , width fill
---            , height shrink
---            ]
---          <|
---            viewCell node
---        , if node.expanded then
---            column
---                [ width fill
---                , height fill
---                ]
---            <|
---                List.map childMap <|
---                    Tree.children tree
---          else
---            none
---        ]
+        node =
+            Tree.label tree
+
+        styled cell =
+            el
+                (cellStyle cell Dict.empty zipper ++ [ Background.color <| simpleColorCodeConverter cell.color 0.7 ])
+            <|
+                viewCell False zipper cell
+
+        childMap child =
+            let
+                child_node =
+                    Tree.label child
+            in
+            row
+                [ spacing 5
+                , padding 5
+                , width fill
+                , height fill
+
+                --, Background.color <| lightGrey 0.5
+                , htmlAttribute <| Html.Attributes.style "overflow-wrap" "inherit"
+                ]
+            <|
+                el
+                    [ Background.color <| white 1.0
+                    , Font.bold
+                    , width <| px 150
+                    , height fill
+                    , Font.color <| simpleColorCodeConverter child_node.color 1.0
+                    ]
+                    (viewCell False zipper child_node)
+                    :: List.map (styled << Tree.label) (Tree.children child)
+    in
+    column
+        [ spacing 3
+        , width fill
+        , height fill
+        ]
+        [ viewCrumbs node zipper
+        , el
+            [ Font.size 20
+            , Font.color <| darkGrey 1.0
+            , width fill
+            , height shrink
+            ]
+          <|
+            viewCell False zipper node
+        , Tree.children tree
+            |> List.map childMap
+            |> column
+                [ width fill
+                , height fill
+                ]
+        ]
 
 
 viewNotifications : List Notification -> Element Msg
@@ -1660,7 +1666,19 @@ getChildren : Url -> Node -> Task Http.Error (Tree Node)
 getChildren url node =
     Decode.list nodeToTree
         |> Api.task "GET" (Endpoint.dagGet url node.links) Http.emptyBody
-        |> Task.andThen (\list -> Task.succeed <| indexChildren <| Tree.tree node list)
+        |> Task.andThen (Task.succeed << indexChildren << Tree.tree node)
+
+
+getTreeOnDepth : Url -> Int -> Tree Node -> Task Http.Error (Tree Node)
+getTreeOnDepth url depth tree =
+    if depth == 0 then
+        Task.succeed tree
+
+    else
+        Tree.label tree
+            |> getChildren url
+            |> Task.andThen (Task.sequence << List.map (getTreeOnDepth url (depth - 1)) << Tree.children << Debug.log "DEPTH")
+            |> Task.andThen (\list -> Task.succeed <| Tree.replaceChildren list tree)
 
 
 fetchWholeDAG : Url -> Hash -> Tree Node -> Task Http.Error (Tree Node)
@@ -1805,18 +1823,6 @@ fetchTargetNode url path =
 fetchTargetLinks : Url -> Path -> Task Http.Error (List Node)
 fetchTargetLinks url path =
     Api.task "GET" (Endpoint.links url path) Http.emptyBody (Decode.list nodeDecoder)
-
-
-getTreeOnDepth : Url -> String -> Int -> Tree Node -> Task Http.Error (Tree Node)
-getTreeOnDepth url root depth tree =
-    if depth == 0 then
-        Task.succeed tree
-
-    else
-        Tree.label tree
-            |> getChildren url
-            |> Task.andThen (Task.sequence << List.map (getTreeOnDepth url root (depth - 1)) << Tree.children)
-            |> Task.andThen (\list -> Task.succeed <| Tree.replaceChildren list tree)
 
 
 pinRepoTree : Url -> Hash -> Hash -> Task Http.Error (List String)
@@ -2211,15 +2217,15 @@ getCrumbs zipper acc =
             acc
 
 
-getContexts : DAG -> List (List Node) -> List (List Node)
-getContexts zipper acc =
+viewDAGasTree : DAG -> List (List Node) -> List (List Node)
+viewDAGasTree zipper acc =
     let
         appendChildren =
             (List.map Tree.label <| Zipper.children zipper) :: acc
     in
     case Zipper.parent zipper of
         Just parent ->
-            getContexts parent appendChildren
+            viewDAGasTree parent appendChildren
 
         Nothing ->
             [ Zipper.label zipper ] :: appendChildren
