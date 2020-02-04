@@ -4,6 +4,7 @@
 
 ### Added
 - animation enabling option
+- tree now can be rendered as table
 
 ### Changed
 - pin management; now repo repin previous one
