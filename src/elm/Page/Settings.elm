@@ -209,6 +209,7 @@ type Msg
     | GotSwarmPeers (Result Http.Error SwarmPeers)
     | GotRepoStat (Result Http.Error RepoStat)
     | InvertShowNodeProps Bool
+    | EnableAnimation Bool
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -234,6 +235,9 @@ update msg model =
 
         InvertShowNodeProps bool ->
             updateSettings { settings | shownodeprops = bool }
+
+        EnableAnimation bool ->
+            updateSettings { settings | animation = bool }
 
         --checkSwarmPeers url )
         RetrieveLocalStoragePeers ->
@@ -492,6 +496,12 @@ viewSettings settings =
             , icon = Input.defaultCheckbox
             , checked = settings.shownodeprops
             , label = Input.labelRight [ spacing 7 ] <| text "Показывать подробную информацию о выбранной ячейке"
+            }
+        , Input.checkbox []
+            { onChange = EnableAnimation
+            , icon = Input.defaultCheckbox
+            , checked = settings.animation
+            , label = Input.labelRight [ spacing 7 ] <| text "Использовать анимацию в интерфейсе"
             }
         ]
 

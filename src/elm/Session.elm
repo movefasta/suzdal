@@ -3,7 +3,7 @@ module Session exposing (Session, Settings, default, getRepo, removeRepo, sessio
 import Api
 import Dict exposing (Dict)
 import Json.Decode as Decode exposing (Decoder)
-import Json.Decode.Pipeline exposing (hardcoded, required)
+import Json.Decode.Pipeline exposing (hardcoded, optional, required)
 import Json.Encode as Encode
 import Repo exposing (Author, Repo)
 import Url exposing (Url)
@@ -22,6 +22,7 @@ type alias Session =
 
 type alias Settings =
     { shownodeprops : Bool
+    , animation : Bool
     , author : Author
     }
 
@@ -47,6 +48,7 @@ defaultSettings : Settings
 defaultSettings =
     { author = { email = "default", name = "default" }
     , shownodeprops = False
+    , animation = False
     }
 
 
@@ -58,6 +60,7 @@ encodeSettings : Settings -> Encode.Value
 encodeSettings s =
     Encode.object
         [ ( "shownodeprops", Encode.bool s.shownodeprops )
+        , ( "animation", Encode.bool s.animation )
         , ( "author", Repo.authorEncoder s.author )
         ]
 
@@ -86,7 +89,8 @@ sessionDecoder url =
 settingsDecoder : Decoder Settings
 settingsDecoder =
     Decode.succeed Settings
-        |> required "shownodeprops" Decode.bool
+        |> optional "shownodeprops" Decode.bool False
+        |> optional "animation" Decode.bool False
         |> required "author" Repo.authorDecoder
 
 

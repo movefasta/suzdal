@@ -55,16 +55,25 @@ toSession model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    if contentIsEditing model.content then
-        Sub.none
+    let
+        keySub =
+            if contentIsEditing model.content then
+                Sub.none
 
-    else
-        Sub.batch
-            [ Events.onKeyPress (Decode.map (\x -> KeyDowns x model.zipper) keyDecoder) ]
+            else
+                Events.onKeyPress (Decode.map (\x -> KeyDowns x model.zipper) keyDecoder)
+
+        animationSub =
+            if model.session.settings.animation then
+                Animation.subscription Animate [ model.style ]
+
+            else
+                Sub.none
+    in
+    Sub.batch [ keySub, animationSub ]
 
 
 
---, Animation.subscription Animate [ model.style ]
 -- INIT
 
 
@@ -83,8 +92,8 @@ init key repo session =
             , utc = Time.utc
             , showchanges = False
             , diff = Nothing
-
-            --, style = Animation.style [ Animation.opacity 0.0 ]
+            , dagRenderStyle = AsTree
+            , style = Animation.style [ Animation.opacity 0.0 ]
             }
     in
     ( initModel
@@ -118,8 +127,8 @@ type alias Model =
     , utc : Time.Zone
     , showchanges : Bool
     , diff : Maybe (Diff Node)
-
-    --, style : Animation.State
+    , dagRenderStyle : DAGstyle
+    , style : Animation.State
     }
 
 
@@ -181,10 +190,10 @@ type Msg
     | GotNewContent DAG (Result Http.Error (List Link))
     | GotTree (Tree Node) (Result Http.Error (Tree Node))
     | DiffFocusedTree DAG
+    | Animate Animation.Msg
 
 
 
---| Animate Animation.Msg
 -- UPDATE
 
 
@@ -204,6 +213,9 @@ update msg model =
             model.session.url
     in
     case msg of
+
+        Animate animMsg ->
+            ( { model | style = Animation.update animMsg model.style }, Cmd.none )
         RootHashRecursivelyPinned (Ok pins) ->
             ( { model | notifications = [ PinAdd <| "Успешно сохранено" ] }, Cmd.none )
 
@@ -560,8 +572,7 @@ update msg model =
         GotNodeContent (Ok nodes) ->
             ( { model
                 | content = Success <| List.indexedMap (\i a -> { a | id = i }) nodes
-
-                --, style = Animation.queue [ Animation.to [ Animation.opacity 1.0 ] ] model.style
+                , style = Animation.queue [ Animation.to [ Animation.opacity 1.0 ] ] model.style
               }
             , Cmd.none
             )
@@ -663,34 +674,35 @@ update msg model =
 
 
 
-{- Animate animMsg ->
-   ( { model
-       | style = Animation.update animMsg model.style
-     }
-   , Cmd.none
-   )
--}
 --VIEW
 
 
 view : Model -> { title : String, content : Element Msg }
 view model =
-    --let
-    --     animation =
-    --       Animation.render model.style
-    --           |> List.map htmlAttribute
-    --in
+    let
+        animation =
+            if model.session.settings.animation then
+                Animation.render model.style
+                    |> List.map htmlAttribute
+
+            else
+                []
+    in
     { title = "Suzdal Ontology Framework"
     , content =
         column
-            [ spacing 15
-            , width fill
-            , height fill
-            , inFront (viewNotifications model.notifications)
-            ]
+            ([ spacing 15
+             , width fill
+             , height fill
+             , inFront (viewNotifications model.notifications)
+             ]
+                ++ animation
+            )
             [ viewRemote (spinner "Загрузка дерева репозитория") (viewDAG model) model.zipper
 
-            --, el [ alignBottom, width fill, padding 7, Background.color <| lightGrey 1.0, Font.size 12 ] (viewLog model.utc model.log)
+            --, el
+            --    [ alignBottom, width fill, padding 7, Background.color <| lightGrey 1.0, Font.size 12 ]
+            --    (viewLog model.utc model.log)
             ]
     }
 
