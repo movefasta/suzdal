@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.1] - 2020-02-09
+
+### Changed
+- add loading screen overlay to block editing while recalc hashes
+
+### Fixed
+- layout in Chromium
+- keydown doesnt trigger on cell description editing
+- overfetching improvements
+
 ## [0.4.0] - 2020-02-05
 
 ### Added

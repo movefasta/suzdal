@@ -942,7 +942,7 @@ viewDAG model dag =
         [ width fill
         , height fill
         , spacing 20
-        , paddingEach { edges | top = 20, bottom = 10, left = 30 }
+        , paddingEach { edges | top = 20, bottom = 20, left = 30 }
         , htmlAttribute (Html.Attributes.style "flex-shrink" "1")
         , clip
         , Font.size 12
