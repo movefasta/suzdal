@@ -1,4 +1,4 @@
-module Loading exposing (dots, error, failed, icon, logo, slowThreshold, spinner)
+module Loading exposing (blockScreen, dots, error, failed, icon, logo, slowThreshold, spinner)
 
 {-| A loading spinner icon.
 -}
@@ -37,6 +37,20 @@ error str =
 spinner : String -> Element msg
 spinner str =
     icon 64 str Asset.loading
+
+
+blockScreen : Element msg
+blockScreen =
+    image
+        [ centerX
+        , centerY
+        , width <| px 60
+        , height <| px 60
+        , Font.color <| white 1.0
+        ]
+        { src = Asset.src Asset.dots
+        , description = ""
+        }
 
 
 dots : Bool -> Element msg

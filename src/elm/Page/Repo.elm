@@ -93,6 +93,7 @@ init key repo session =
             , showchanges = False
             , diff = Nothing
             , dagRenderStyle = AsTree
+            , blockEdit = False
             , style = Animation.style [ Animation.opacity 0.0 ]
             }
     in
@@ -128,6 +129,7 @@ type alias Model =
     , showchanges : Bool
     , diff : Maybe (Diff Node)
     , dagRenderStyle : DAGstyle
+    , blockEdit : Bool
     , style : Animation.State
     }
 
@@ -310,11 +312,14 @@ update msg model =
             ( { model | notifications = [ ServerError <| "Ошибка обновления истории хранилища" ++ key ] }, Cmd.none )
 
         GotDAG (Ok dag) ->
-            ( { model | zipper = Success dag }, Content.fetchByCid url (.cid <| Zipper.label dag) GotNodeContent )
+            ( { model | zipper = Success dag, blockEdit = False }
+            , Content.fetchByCid url (.cid <| Zipper.label dag) GotNodeContent
+            )
 
         GotDAG (Err error) ->
             ( { model
                 | zipper = Failed error
+                , blockEdit = False
 
                 --, notifications = [ ServerError "Не удалось загрузить искомую ячейку. Загружен корневой раздел" ]
                 , repo = { repo | location = [] }
@@ -392,25 +397,26 @@ update msg model =
                 newRepo =
                     { repo | unsaved = unsaved_changes }
             in
-            ( { model
-                | repo = newRepo
-                , session = Session.updateRepo model.key newRepo model.session
-              }
+            ( { model | repo = newRepo, session = Session.updateRepo model.key newRepo model.session, blockEdit = changed }
             , Cmd.batch
                 [ Session.store <| Session.updateRepo model.key newRepo model.session
-                , case Zipper.parent zipper of
-                    Just parent ->
-                        updateLinksHash url parent
+                , if changed then
+                    case Zipper.parent zipper of
+                        Just parent ->
+                            updateLinksHash url parent
 
-                    Nothing ->
-                        Task.attempt GotDAG <|
-                            Task.succeed <|
-                                case setFocus repo.location zipper of
-                                    Just focus ->
-                                        focus
+                        Nothing ->
+                            Task.attempt GotDAG <|
+                                Task.succeed <|
+                                    case setFocus repo.location zipper of
+                                        Just focus ->
+                                            focus
 
-                                    Nothing ->
-                                        zipper
+                                        Nothing ->
+                                            zipper
+
+                  else
+                    Cmd.none
 
                 --fetchChildren url (Maybe.withDefault zipper (setFocus repo.location zipper)) unsaved_changes
                 --    |> Task.attempt GotDAG
@@ -715,6 +721,19 @@ view model =
              , width fill
              , height fill
              , inFront (viewNotifications model.notifications)
+             , inFront <|
+                if model.blockEdit then
+                    el
+                        [ width fill
+                        , height fill
+                        , Background.color <| black 1.0
+                        , alpha 0.3
+                        , inFront (viewNotifications model.notifications)
+                        ]
+                        Loading.blockScreen
+
+                else
+                    none
              ]
                 ++ animation
             )
