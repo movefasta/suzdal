@@ -352,7 +352,7 @@ update msg model =
             )
 
         Append zipper ->
-            ( { model | zipper = Loading }, updateLinksHash url zipper )
+            ( { model | zipper = Success zipper }, updateLinksHash url zipper )
 
         UpdateFocus zipper ->
             ( { model | zipper = Success zipper }
