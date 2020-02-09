@@ -403,8 +403,17 @@ update msg model =
                         updateLinksHash url parent
 
                     Nothing ->
-                        fetchChildren url (Maybe.withDefault zipper (setFocus repo.location zipper)) unsaved_changes
-                            |> Task.attempt GotDAG
+                        Task.attempt GotDAG <|
+                            Task.succeed <|
+                                case setFocus repo.location zipper of
+                                    Just focus ->
+                                        focus
+
+                                    Nothing ->
+                                        zipper
+
+                --fetchChildren url (Maybe.withDefault zipper (setFocus repo.location zipper)) unsaved_changes
+                --    |> Task.attempt GotDAG
                 ]
             )
 
