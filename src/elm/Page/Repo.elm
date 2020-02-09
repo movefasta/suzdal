@@ -825,8 +825,10 @@ viewCrumbs node zipper =
                             cells
                    )
                 |> List.intersperse (text "/")
-                |> wrappedRow
+                |> row
                     [ spacing 7
+                    , width shrink
+                    , height shrink
                     , Font.size 12
                     , Font.italic
                     ]
@@ -1334,7 +1336,7 @@ viewLink url zipper link =
                         , Font.color <| darkGrey 1.0
                         , mouseOver [ Font.color <| black 1.0 ]
                         ]
-                        [ el [ width fill, padding 5, spacing 5, clip, Font.italic, Font.center ] <| text link.name
+                        [ el [ width fill, padding 5, spacing 5, Font.italic, Font.center ] <| text link.name
                         , html <|
                             Html.audio
                                 [ Html.Attributes.src <| Endpoint.file url link.cid
