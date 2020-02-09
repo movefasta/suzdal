@@ -57,7 +57,7 @@ subscriptions : Model -> Sub Msg
 subscriptions model =
     let
         keySub =
-            if contentIsEditing model.content then
+            if contentIsEditing model.content || cellIsEditing model.zipper then
                 Sub.none
 
             else
@@ -2065,6 +2065,16 @@ contentIsEditing remote_list =
     case remote_list of
         Success content ->
             List.any (\a -> Editing == a.status) content
+
+        _ ->
+            False
+
+
+cellIsEditing : Remote DAG -> Bool
+cellIsEditing remote_dag =
+    case remote_dag of
+        Success zipper ->
+            .editing <| Zipper.label zipper
 
         _ ->
             False
