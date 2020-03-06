@@ -433,12 +433,12 @@ update msg model =
             in
             case String.toInt code of
                 Just int ->
-                    if node.color == int then
+                    if node.color == int - 1 then
                         ( model, Cmd.none )
 
                     else
-                        ( { model | zipper = Success (Zipper.replaceLabel { node | color = int } zipper) }
-                        , checkNodeForChanges url model.repo.tree (Zipper.replaceLabel { node | color = int } zipper)
+                        ( { model | zipper = Success (Zipper.replaceLabel { node | color = int - 1 } zipper) }
+                        , checkNodeForChanges url model.repo.tree (Zipper.replaceLabel { node | color = int - 1 } zipper)
                         )
 
                 --update (UpdateFocus <| Zipper.replaceLabel { node | color = int } zipper) model
