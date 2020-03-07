@@ -102,6 +102,7 @@ init key repo session =
         [ Task.perform (\_ -> PassedSlowLoadThreshold) Loading.slowThreshold
         , Task.attempt GotZone Time.here
         , fetchDAG session.url { cid = repo.tree, location = repo.location } repo.unsaved
+        , contentRequest session.url { cid = repo.tree, location = repo.location } repo.unsaved
 
         --, case repo.head of
         --    Just head ->
@@ -313,20 +314,18 @@ update msg model =
 
         GotDAG (Ok dag) ->
             ( { model | zipper = Success dag, blockEdit = False }
-            , Content.fetchByCid url (.cid <| Zipper.label dag) GotNodeContent
+            , Cmd.none
+              --Content.fetchByCid url (.cid <| Zipper.label dag) GotNodeContent
             )
 
         GotDAG (Err error) ->
             ( { model
                 | zipper = Failed error
                 , blockEdit = False
-
-                --, notifications = [ ServerError "Не удалось загрузить искомую ячейку. Загружен корневой раздел" ]
                 , repo = { repo | location = [] }
                 , session = Session.updateRepo model.key { repo | location = [] } model.session
               }
             , Cmd.none
-              --, fetchDAG url { cid = repo.tree, location = [] } model.repo.unsaved
             )
 
         GotLog (Ok log) ->
@@ -400,26 +399,19 @@ update msg model =
             ( { model | repo = newRepo, session = Session.updateRepo model.key newRepo model.session, blockEdit = changed }
             , Cmd.batch
                 [ Session.store <| Session.updateRepo model.key newRepo model.session
-                , if changed then
-                    case Zipper.parent zipper of
-                        Just parent ->
-                            updateLinksHash url parent
+                , case Zipper.parent zipper of
+                    Just parent ->
+                        updateLinksHash url parent
 
-                        Nothing ->
-                            Task.attempt GotDAG <|
-                                Task.succeed <|
-                                    case setFocus repo.location zipper of
-                                        Just focus ->
-                                            focus
+                    Nothing ->
+                        Task.attempt GotDAG <|
+                            Task.succeed <|
+                                case setFocus repo.location zipper of
+                                    Just focus ->
+                                        focus
 
-                                        Nothing ->
-                                            zipper
-
-                  else
-                    Cmd.none
-
-                --fetchChildren url (Maybe.withDefault zipper (setFocus repo.location zipper)) unsaved_changes
-                --    |> Task.attempt GotDAG
+                                    Nothing ->
+                                        zipper
                 ]
             )
 
@@ -461,7 +453,12 @@ update msg model =
                 ( { model | repo = newRepo, session = Session.updateRepo model.key newRepo model.session }, Cmd.none )
 
             else
-                ( model, checkNodeForChanges url repo.tree (Zipper.replaceLabel { node | cid = cid } zipper) )
+                ( model
+                , Cmd.batch
+                    [ checkNodeForChanges url repo.tree (Zipper.replaceLabel { node | cid = cid } zipper)
+                    , Content.fetchByCid url cid GotNodeContent
+                    ]
+                )
 
         GotUpdatedContentHash _ (Err _) ->
             ( { model | notifications = [ ServerError "Ошибка запроса хэша файлов (GotUpdatedContentHash Msg)" ] }, Cmd.none )
