@@ -195,6 +195,7 @@ type Msg
     | DiffFocusedTree DAG
     | SetRenderStyle DAG DAGstyle
     | Animate Animation.Msg
+    | GotAddedTextHash DAG (List Link) (Result Http.Error Link)
 
 
 type DAGstyle
@@ -433,7 +434,6 @@ update msg model =
                         , checkNodeForChanges url model.repo.tree (Zipper.replaceLabel { node | color = int - 1 } zipper)
                         )
 
-                --update (UpdateFocus <| Zipper.replaceLabel { node | color = int } zipper) model
                 Nothing ->
                     ( model, Cmd.none )
 
@@ -456,7 +456,8 @@ update msg model =
                 ( model
                 , Cmd.batch
                     [ checkNodeForChanges url repo.tree (Zipper.replaceLabel { node | cid = cid } zipper)
-                    , Content.fetchByCid url cid GotNodeContent
+
+                    --, Content.fetchByCid url cid GotNodeContent
                     ]
                 )
 
@@ -476,7 +477,6 @@ update msg model =
                                     AsTree ->
                                         getChildren url { node | expanded = True }
                             , Success focus
-                              -- ^ label replaced for accept node editing status
                             )
 
                         Nothing ->
@@ -552,7 +552,6 @@ update msg model =
             in
             ( { model | hover = False }
             , Content.addFiles url content (file :: files) |> Task.attempt (GotNewContent zipper)
-              --, Content.update url content (file :: files) |> Task.attempt (GotUpdatedContentHash { node | size = size })
             )
 
         GotNewContent zipper (Ok content) ->
@@ -637,6 +636,22 @@ update msg model =
                 ]
             )
 
+        GotAddedTextHash zipper links (Ok link) ->
+            let
+                content =
+                    List.Extra.setAt link.id { link | cid = link.cid } links
+
+                body =
+                    content |> contentEncoder |> jsonToHttpBody
+            in
+            ( { model | content = Success content }
+            , Api.task "POST" (Endpoint.dagPut url) body (Decode.at [ "Cid", "/" ] Decode.string)
+                |> Task.attempt (GotUpdatedContentHash zipper)
+            )
+
+        GotAddedTextHash _ links (Err _) ->
+            ( { model | notifications = [ ServerError "Ошибка добавления текста (GotAddedTextHash)" ] }, Cmd.none )
+
         Perform zipper action ->
             let
                 mapFun =
@@ -652,9 +667,6 @@ update msg model =
                         Set link ->
                             List.Extra.setAt link.id link
 
-                {- RemoveAll ->
-                   List.filter (\a -> False)
-                -}
                 links =
                     case model.content of
                         Success content ->
@@ -671,22 +683,8 @@ update msg model =
                             Task.attempt (\_ -> NoOp) <| Dom.focus ("file-id-" ++ String.fromInt link.id)
 
                         Changed ->
-                            let
-                                body cid =
-                                    List.Extra.setAt link.id { link | cid = cid } links
-                                        |> contentEncoder
-                                        |> jsonToHttpBody
-                            in
                             Content.uploadText (Endpoint.add url) link.id link.description
-                                |> Task.andThen
-                                    (\x ->
-                                        Api.task
-                                            "POST"
-                                            (Endpoint.dagPut url)
-                                            (body x.cid)
-                                            (Decode.at [ "Cid", "/" ] Decode.string)
-                                    )
-                                |> Task.attempt (GotUpdatedContentHash zipper)
+                                |> Task.attempt (GotAddedTextHash zipper links)
 
                         _ ->
                             Cmd.none
