@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.2] - 2020-03-28
+
+### Added
+- IPFS Web UI link in Settings Page
+- title html attribute on cell mouseover
+- child nodes loading notification
+
+### Changed
+- cell color restyle
+- cell color hotkeys 
+- new cell added without name
+- notification moved to bottom
+
+### Fixed
+- text content updating
+- input form now doesn't change color of focused node
+
+
 ## [0.4.1] - 2020-02-09
 
 ### Changed
