@@ -7,6 +7,7 @@ module UI.Colors exposing
     , green
     , lightGrey
     , orange
+    , red
     , violet
     , white
     , yellow
@@ -177,29 +178,34 @@ orange alpha =
     rgba255 255 122 0 alpha
 
 
+red : Float -> Color
+red alpha =
+    rgba255 255 187 187 alpha
+
+
 yellow : Float -> Color
 yellow alpha =
-    rgba255 255 214 0 alpha
+    rgba255 255 255 187 alpha
 
 
 green : Float -> Color
 green alpha =
-    rgba255 152 237 0 alpha
+    rgba255 187 255 187 alpha
 
 
 cyan : Float -> Color
 cyan alpha =
-    rgba255 2 142 155 alpha
+    rgba255 187 255 255 alpha
 
 
 blue : Float -> Color
 blue alpha =
-    rgba255 62 19 175 alpha
+    rgba255 187 187 255 alpha
 
 
 violet : Float -> Color
 violet alpha =
-    rgba255 210 0 107 alpha
+    rgba255 255 187 255 alpha
 
 
 lightGrey : Float -> Color

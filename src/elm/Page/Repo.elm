@@ -1154,7 +1154,7 @@ viewCell shownodeprops dag node =
                     { offset = ( 1, 1 )
                     , size = 1
                     , blur = 0
-                    , color = lightGrey 1.0
+                    , color = darkGrey 1.0
                     }
                 ]
             , width fill
@@ -1490,8 +1490,6 @@ viewDAGasTable zipper =
                 , padding 5
                 , width fill
                 , height fill
-
-                --, Background.color <| lightGrey 0.5
                 , htmlAttribute <| Html.Attributes.style "overflow-wrap" "inherit"
                 ]
             <|
@@ -1500,7 +1498,7 @@ viewDAGasTable zipper =
                     , Font.bold
                     , width <| px 150
                     , height fill
-                    , Font.color <| simpleColorCodeConverter child_node.color 1.0
+                    , Font.color <| darkGrey 1.0 --<| simpleColorCodeConverter child_node.color 1.0
                     ]
                     (viewCell False zipper child_node)
                     :: List.map (styled << Tree.label) (Tree.children child)
@@ -1535,7 +1533,7 @@ viewNotifications notifications =
             [ width fill
             , paddingXY 10 8
             , Font.size 14
-            , Background.color <| color 0.7
+            , Background.color <| color 1.0
             , Border.width 1
             , Border.color <| color 1.0
             , Border.rounded 5
@@ -1978,7 +1976,7 @@ simpleColorCodeConverter i alpha =
                     yellow
 
                 1 ->
-                    orange
+                    red
 
                 2 ->
                     violet
