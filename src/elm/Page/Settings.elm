@@ -5,6 +5,7 @@ import Api.Endpoint as Endpoint
 import Api.NodeConfig exposing (IpfsNodeConfig)
 import Api.RepoStat exposing (RepoStat)
 import Api.SwarmPeers exposing (SwarmPeers)
+import Asset
 import Element exposing (..)
 import Element.Background as Background
 import Element.Border as Border
@@ -55,7 +56,7 @@ init session =
         , Api.get (Endpoint.repoStat host) GotRepoStat Api.RepoStat.decoder
         , checkSwarmPeers host
         , Api.get (Endpoint.filesRead host "/suzdal/settings.json") GotAuthor Repo.authorDecoder
-        , Process.sleep 0 |> Task.perform (always RetrieveLocalStoragePeers)
+        , Process.sleep 0 |> Task.perform (\_ -> RetrieveLocalStoragePeers)
         ]
     )
 
@@ -244,15 +245,15 @@ update msg model =
             ( model, Api.retrieveObject "peers" )
 
         Hover peer bool ->
-            ( { model | peers = List.Extra.updateIf (\p -> p.id == peer.id) (\p -> { p | hover = bool }) model.peers }, Cmd.none )
+            ( { model | peers = List.Extra.updateIf ((==) peer.id << .id) (\p -> { p | hover = bool }) model.peers }, Cmd.none )
 
         UpdatePeer updatedpeer ->
-            ( { model | peers = List.Extra.updateIf (\p -> p.id == updatedpeer.id) (always updatedpeer) model.peers }, Cmd.none )
+            ( { model | peers = List.Extra.updateIf ((==) updatedpeer.id << .id) (\_ -> updatedpeer) model.peers }, Cmd.none )
 
         SavePeer peertosave ->
             let
                 newpeers =
-                    List.Extra.updateIf (\p -> p.id == peertosave.id) (always peertosave) model.peers
+                    List.Extra.updateIf ((==) peertosave.id << .id) (\_ -> peertosave) model.peers
             in
             ( { model | peers = newpeers }
             , Cmd.batch [ checkPeer "" url peertosave, Api.storePeers (encodePeers newpeers) ]
@@ -468,11 +469,19 @@ view model =
                 ]
                 [ viewPeers model.swarm model.peers
                 , viewSettings model.session.settings
-                , viewRemote "Идентификационные данные" viewID model.id
+                ]
+            , column
+                [ width fill
+                , height fill
+                , alignTop
+                , scrollbarY
+                , spacing 40
+                ]
+                [ viewRemote "Идентификационные данные" viewID model.id
                 , viewRemote "Учётные данные пользователя" viewAuthor model.author
                 , viewRemote "Статистика репозитория" viewRepoStat model.repo
+                , ipfsWebUIlink model.session.url
                 ]
-            , viewRemote "Полная конфигурация" viewRawConfig model.config
             ]
     }
 
@@ -521,7 +530,7 @@ viewRepoStat stat =
 viewRemote : String -> (a -> Element Msg) -> Status a -> Element Msg
 viewRemote title viewfun remote =
     column
-        [ width fill, height fill, spacing 15, alignTop ]
+        [ width fill, spacing 15 ]
         [ header title
         , case remote of
             Loaded a ->
@@ -538,7 +547,9 @@ viewRemote title viewfun remote =
 viewPeers : Status SwarmPeers -> List Peer -> Element Msg
 viewPeers response peers =
     column
-        [ width fill, height fill, spacing 15, alignTop ]
+        [ width fill
+        , spacing 15
+        ]
         [ row
             [ spacing 10 ]
             [ header "Список избранных пиров"
@@ -798,6 +809,20 @@ hslSlider hue =
         , value = hue
         , thumb =
             Input.defaultThumb
+        }
+
+
+ipfsWebUIlink : Url -> Element Msg
+ipfsWebUIlink url =
+    newTabLink
+        []
+        { url = Endpoint.ipfsWebUI url
+        , label =
+            row
+                [ spacing 15 ]
+                [ header "Управление узлом IPFS"
+                , image [ width <| px 30 ] { src = Asset.src Asset.ipfs, description = "IPFS Web UI" }
+                ]
         }
 
 

@@ -1,4 +1,4 @@
-module Api.Endpoint exposing (Endpoint, add, changeLog, cluster, config, configSet, connect, content, dagGet, dagPut, file, filesLs, filesRead, filesWrite, getContent, getInitRepos, id, links, node, objectGet, pinAdd, pinLs, pinUpdate, pinVerify, publish, repoStat, request, resolve, swarmPeers, task, unwrap)
+module Api.Endpoint exposing (Endpoint, add, changeLog, cluster, config, configSet, connect, content, dagGet, dagPut, file, filesLs, filesRead, filesWrite, getContent, getInitRepos, id, ipfsWebUI, links, node, objectGet, pinAdd, pinLs, pinUpdate, pinVerify, publish, repoStat, request, resolve, swarmPeers, task, unwrap)
 
 import Http
 import Json.Encode as Encode
@@ -244,6 +244,11 @@ endpoint url =
 gateway : Url -> String
 gateway url =
     Url.toString { url | port_ = Just 8080, path = "/ipfs", fragment = Nothing }
+
+
+ipfsWebUI : Url -> String
+ipfsWebUI url =
+    Url.toString { url | port_ = Just 5001, path = "/webui", fragment = Nothing }
 
 
 cluster : Url -> String

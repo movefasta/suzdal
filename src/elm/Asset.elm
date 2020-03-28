@@ -1,4 +1,4 @@
-module Asset exposing (Image, defaultAvatar, dots, error, loading, logo, src)
+module Asset exposing (Image, defaultAvatar, dots, error, ipfs, loading, logo, src)
 
 {-| Assets, such as images, videos, and audio. (We only have images for now.)
 
@@ -41,6 +41,11 @@ defaultAvatar =
 logo : Image
 logo =
     image "suzdal_logo.svg"
+
+
+ipfs : Image
+ipfs =
+    image "ipfs.svg"
 
 
 
