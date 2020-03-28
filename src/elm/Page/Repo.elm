@@ -1165,6 +1165,7 @@ viewCell shownodeprops dag node =
             , centerY
             , padding 15
             , htmlAttribute <| Html.Attributes.id <| Route.locationToString "/" node.location
+            , htmlAttribute <| Html.Attributes.title node.description
             , Event.onClick <| ChangeFocus dag node
             , Event.onDoubleClick <| ChangeFocus dag { node | editing = True }
             , text (Route.locationToString "/" node.location)
