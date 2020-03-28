@@ -1477,7 +1477,7 @@ viewDAGasTable zipper =
 
         styled cell =
             el
-                (cellStyle cell Dict.empty zipper ++ [ Background.color <| simpleColorCodeConverter cell.color 0.7 ])
+                (cellStyle cell Dict.empty zipper ++ [ Background.color <| simpleColorCodeConverter cell.color 1.0 ])
             <|
                 viewCell False zipper cell
 
