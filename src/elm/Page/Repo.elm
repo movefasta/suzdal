@@ -151,9 +151,15 @@ type alias Styles =
     }
 
 
+type DAGstyle
+    = AsTable
+    | AsTree
+
+
 type Notification
     = ServerError String
     | PinAdd String
+    | Requesting String
 
 
 type Msg
@@ -196,11 +202,6 @@ type Msg
     | SetRenderStyle DAG DAGstyle
     | Animate Animation.Msg
     | GotAddedTextHash DAG (List Link) (Result Http.Error Link)
-
-
-type DAGstyle
-    = AsTable
-    | AsTree
 
 
 
@@ -498,6 +499,7 @@ update msg model =
                     , repo = { repo | location = node.location }
                     , session = Session.updateRepo model.key { repo | location = node.location } model.session
                     , showchanges = False
+                    , notifications = [ Requesting "Запрос дочерних ячеек..." ]
 
                     --, style = Animation.interrupt [ Animation.set [ Animation.opacity 0.0 ] ] model.style
                   }
@@ -516,7 +518,12 @@ update msg model =
                 newTree =
                     Tree.mapLabel (\x -> { x | expanded = False }) tree
             in
-            ( { model | zipper = Success (Zipper.replaceTree newTree zipper) }, Cmd.none )
+            ( { model
+                | zipper = Success (Zipper.replaceTree newTree zipper)
+                , notifications = []
+              }
+            , Cmd.none
+            )
 
         AddSubTree _ (Err _) ->
             ( { model | notifications = [ ServerError "Ошибка загрузки дочерних ячеек" ] }, Cmd.none )
@@ -723,7 +730,6 @@ view model =
                         , height fill
                         , Background.color <| black 1.0
                         , alpha 0.3
-                        , inFront (viewNotifications model.notifications)
                         ]
                         Loading.blockScreen
 
@@ -1545,13 +1551,16 @@ viewNotifications notifications =
 
                 PinAdd str ->
                     row (style green) [ text str, clearNotificationsButton ]
+
+                Requesting str ->
+                    el [ Font.size 18, Font.color <| darkGrey 1.0 ] <| text str
     in
     case notifications of
         [] ->
             none
 
         _ ->
-            column [ width fill, padding 10 ] <| List.map render notifications
+            column [ width fill, padding 15, alignBottom, alignLeft ] <| List.map render notifications
 
 
 clearNotificationsButton : Element Msg
