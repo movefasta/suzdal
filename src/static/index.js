@@ -1,7 +1,5 @@
 'use strict';
 
-require('./assets/images/loading.svg');
-
 const { Elm } = require('../elm/Main');
 
 var app = Elm.Main.init({
