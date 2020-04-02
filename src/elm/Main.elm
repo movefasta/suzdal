@@ -53,10 +53,6 @@ init value url navKey =
 
 
 
---init : () -> Url -> Nav.Key -> ( Model, Cmd Msg )
---init url navKey =
---    ( { key = navKey, page = Home { session | settings = settings, url = url } }
---    , Api.get (Endpoint.filesRead host "/suzdal/settings.json") GotAuthor Repo.authorDecoder )
 -- VIEW
 
 
@@ -94,10 +90,6 @@ view model =
 
 
 
---Loading ->
---    { title = "Список репозиториев"
---    , body = Layout.toHtml <| Loading.spinner "Инициализация"
---    }
 -- UPDATE
 
 
@@ -109,11 +101,6 @@ type Msg
     | GotSettingsMsg Settings.Msg
     | GotRepoMsg Repo.Msg
     | GotWelcomeMsg Welcome.Msg
-
-
-
---    | GotAuthor (Result Http.Error Repo.Author)
---    | GotRepos (Result Http.Error (List Repo))
 
 
 toSession : Model -> Session
