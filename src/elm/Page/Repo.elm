@@ -202,6 +202,10 @@ type Msg
     | SetRenderStyle DAG DAGstyle
     | Animate Animation.Msg
     | GotAddedTextHash DAG (List Link) (Result Http.Error Link)
+    | ValidateLinks DAG Node
+    | ValidateContent DAG Node
+    | GotValidatedContent DAG Node (Result Http.Error Content)
+    | GotValidatedLinks DAG (Result Http.Error (Tree Node))
 
 
 
@@ -224,8 +228,36 @@ update msg model =
             model.session.url
     in
     case msg of
+        ValidateLinks zipper node ->
+            ( model, getChildren url node |> Task.attempt (GotValidatedLinks zipper) )
+
+        ValidateContent zipper node ->
+            ( model, Content.fetchByCid url node.cid (GotValidatedContent zipper node) )
+
+        GotValidatedLinks zipper (Ok tree) ->
+            let
+                newZipper =
+                    Zipper.replaceTree tree zipper
+            in
+            ( { model | zipper = Success newZipper }, checkNodeForChanges url repo.tree newZipper )
+
+        GotValidatedLinks _ (Err _) ->
+            ( { model | notifications = [ ServerError "Обновление дочерних ячеек отменено. Проверьте хэш" ] }, Cmd.none )
+
+        GotValidatedContent zipper node (Ok content) ->
+            let
+                newZipper =
+                    Zipper.replaceLabel node zipper
+            in
+            ( { model | zipper = Success newZipper, content = Success content }, checkNodeForChanges url repo.tree newZipper )
+
+        GotValidatedContent _ _ (Err _) ->
+            ( { model | notifications = [ ServerError "Обновление файлов отменено. Проверьте хэш" ] }, Cmd.none )
+
         SetRenderStyle zipper style ->
-            ( { model | dagRenderStyle = style }, Task.attempt (AddSubTree zipper) <| getTreeOnDepth url 2 (Zipper.tree zipper) )
+            ( { model | dagRenderStyle = style }
+            , Task.attempt (AddSubTree zipper) <| getTreeOnDepth url 2 (Zipper.tree zipper)
+            )
 
         Animate animMsg ->
             ( { model | style = Animation.update animMsg model.style }, Cmd.none )
@@ -1193,14 +1225,14 @@ viewNodeProps zipper show =
             ]
             [ Input.text
                 inputStyle
-                { onChange = \new -> UpdateFocus <| Zipper.replaceLabel { node | cid = new } zipper
+                { onChange = \new -> ValidateContent zipper { node | cid = new }
                 , text = node.cid
                 , placeholder = Just <| Input.placeholder [] <| text "Идентификатор контента - хэш"
                 , label = Input.labelAbove [] <| el [] <| text "Адрес файлов"
                 }
             , Input.text
                 inputStyle
-                { onChange = \new -> UpdateFocus <| Zipper.replaceLabel { node | links = new } zipper
+                { onChange = \new -> ValidateLinks zipper { node | links = new }
                 , text = node.links
                 , placeholder = Just <| Input.placeholder [] <| text "Ссылки"
                 , label = Input.labelAbove [] <| el [] <| text "Адрес дочерних ячеек"
