@@ -445,22 +445,13 @@ update msg model =
             let
                 node =
                     Zipper.label zipper
+
+                newRepo =
+                    { repo | unsaved = Dict.remove node.location model.repo.unsaved }
             in
-            if cid == node.cid then
-                let
-                    newRepo =
-                        { repo | unsaved = Dict.remove node.location model.repo.unsaved }
-                in
-                ( { model | repo = newRepo, session = Session.updateRepo model.key newRepo model.session }, Cmd.none )
-
-            else
-                ( model
-                , Cmd.batch
-                    [ checkNodeForChanges url repo.tree (Zipper.replaceLabel { node | cid = cid } zipper)
-
-                    --, Content.fetchByCid url cid GotNodeContent
-                    ]
-                )
+            ( { model | repo = newRepo, session = Session.updateRepo model.key newRepo model.session }
+            , checkNodeForChanges url repo.tree (Zipper.replaceLabel { node | cid = cid } zipper)
+            )
 
         GotUpdatedContentHash _ (Err _) ->
             ( { model | notifications = [ ServerError "Ошибка запроса хэша файлов (GotUpdatedContentHash Msg)" ] }, Cmd.none )
