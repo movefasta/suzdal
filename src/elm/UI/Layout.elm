@@ -11,7 +11,9 @@ import Element.Lazy as Lazy exposing (lazy)
 import Html exposing (Html)
 import Html.Attributes
 import Html.Events as HtmlEvents
+import UI.Button as Button
 import UI.Colors as Colors
+import UI.Fonts as Fonts
 import UI.Icons as Icons
 
 
@@ -26,6 +28,10 @@ toHtml content =
                 }
             ]
         }
-        [ height fill ]
+        [ height fill
+        , Font.family [ Font.typeface "Ubuntu-Regular" ]
+        , Font.size 13
+        , Font.letterSpacing 0.4
+        ]
         content
     ]

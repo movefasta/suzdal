@@ -707,7 +707,7 @@ view model =
             else
                 []
     in
-    { title = "Suzdal Ontology Framework"
+    { title = "Трактовочная сеть Суздаль"
     , content =
         column
             ([ spacing 15
@@ -730,10 +730,6 @@ view model =
                 ++ animation
             )
             [ viewRemote (spinner "Загрузка дерева репозитория") (viewDAG model) model.zipper
-
-            --, el
-            --    [ alignBottom, width fill, padding 7, Background.color <| lightGrey 1.0, Font.size 12 ]
-            --    (viewLog model.utc model.log)
             ]
     }
 
@@ -757,9 +753,6 @@ viewMetaData repo =
             , height shrink
             , centerY
             , Font.color <| darkGrey 1.0
-            , Font.size 18
-
-            --, Event.onDoubleClick (UpdateQuery string)
             ]
           <|
             text repo.name
@@ -781,7 +774,6 @@ viewChangesLabel changes =
             , Background.color <| orange 0.5
             , mouseOver [ Background.color <| lightGrey 1.0 ]
             , Border.rounded 5
-            , Font.size 12
             , pointer
             , alignLeft
             , Event.onClick <| ShowChanges
@@ -794,7 +786,6 @@ viewChanges zipper changes =
     column
         [ Background.color <| white 1.0
         , spacing 15
-        , Font.size 12
         , padding 10
         , width fill
         , Border.color <| lightGrey 1.0
@@ -818,7 +809,6 @@ viewChanges zipper changes =
                         [ viewCrumbs node zipper
                         , paragraph
                             [ Font.bold
-                            , Font.size 18
                             , Event.onClick <| ChangeFocus zipper node
                             , pointer
                             , width fill
@@ -849,7 +839,6 @@ viewCrumbs node zipper =
                     [ spacing 7
                     , width shrink
                     , height shrink
-                    , Font.size 12
                     , Font.italic
                     ]
 
@@ -937,7 +926,6 @@ viewDAG model dag =
         , paddingEach { edges | top = 20, bottom = 20, left = 30 }
         , htmlAttribute (Html.Attributes.style "flex-shrink" "1")
         , clip
-        , Font.size 12
         ]
         [ column
             [ width <| px 700
@@ -995,8 +983,6 @@ viewDAG model dag =
 
                 AsTable ->
                     UI.Button.renderDAGasTree <| SetRenderStyle dag AsTree
-
-            --, UI.Button.diffTree <| DiffFocusedTree dag
             ]
         , column
             [ width fill
@@ -1006,6 +992,7 @@ viewDAG model dag =
             ]
             [ row
                 [ width fill
+                , paddingEach { edges | bottom = 4 }
                 , Border.color <| darkGrey 1.0
                 , Border.widthEach { edges | bottom = 2 }
                 ]
@@ -1020,7 +1007,11 @@ viewDAG model dag =
 viewContent : DAG -> Url -> Content -> Element Msg
 viewContent dag url content =
     column
-        [ scrollbarY, width fill, height fill, paddingEach { edges | right = 10 } ]
+        [ scrollbarY
+        , width fill
+        , height fill
+        , paddingEach { edges | right = 10 }
+        ]
     <|
         List.map (viewLink url dag) content
 
@@ -1031,10 +1022,6 @@ viewContentEditor zipper content =
         [ alignRight, alignBottom ]
         [ UI.Button.addTextFile (AddText content)
         , UI.Button.addFile (Pick zipper content)
-
-        --, el [ alignRight, transparent (List.isEmpty content) ] <|
-        --    button False Icons.trash2 <|
-        --        Perform RemoveAll
         ]
 
 
@@ -1042,8 +1029,9 @@ viewFocusTitle : Node -> Element Msg
 viewFocusTitle node =
     paragraph
         [ Font.size 24
+        , Font.family [ Font.typeface "Ubuntu-Bold" ]
         , width fill
-        , paddingEach { edges | bottom = 5 }
+        , paddingEach { edges | bottom = 7 }
         ]
         [ text node.description ]
 
@@ -1164,10 +1152,8 @@ viewCell shownodeprops dag node =
             , Event.onClick <| ChangeFocus dag node
             , Event.onDoubleClick <| ChangeFocus dag { node | editing = True }
             , text (Route.locationToString "/" node.location)
-                |> el [ Font.size 10, padding 3, transparent (not shownodeprops) ]
+                |> el [ padding 3, transparent (not shownodeprops) ]
                 |> inFront
-
-            --<| Loading.dots node.expanded
             ]
         <|
             paragraph
@@ -1210,14 +1196,14 @@ viewNodeProps zipper show =
                 { onChange = \new -> UpdateFocus <| Zipper.replaceLabel { node | cid = new } zipper
                 , text = node.cid
                 , placeholder = Just <| Input.placeholder [] <| text "Идентификатор контента - хэш"
-                , label = Input.labelAbove [] <| el [ Font.size 10 ] <| text "Адрес файлов"
+                , label = Input.labelAbove [] <| el [] <| text "Адрес файлов"
                 }
             , Input.text
                 inputStyle
                 { onChange = \new -> UpdateFocus <| Zipper.replaceLabel { node | links = new } zipper
                 , text = node.links
                 , placeholder = Just <| Input.placeholder [] <| text "Ссылки"
-                , label = Input.labelAbove [] <| el [ Font.size 10 ] <| text "Адрес дочерних ячеек"
+                , label = Input.labelAbove [] <| el [] <| text "Адрес дочерних ячеек"
                 }
             , row [ spacing 5 ]
                 [ text "Адрес ячейки в дереве"
@@ -1250,7 +1236,6 @@ viewLinkActions url zipper link =
         actionStyle =
             [ mouseOver <| [ Background.color <| lightGrey 1.0 ]
             , paddingXY 7 2
-            , Font.size 12
             , Border.rounded 3
             ]
     in
@@ -1369,7 +1354,8 @@ viewLink url zipper link =
 
                 Just (Mime.Image _) ->
                     image
-                        [ width fill
+                        [ centerX
+                        , width (fill |> maximum 700 |> minimum 200)
                         , Font.color <| lightGrey 1.0
                         , mouseOver [ Font.color <| black 1.0 ]
                         ]
@@ -1445,17 +1431,13 @@ viewLink url zipper link =
 
 fontBy : Int -> List (E.Attribute Msg)
 fontBy size =
-    if size <= 140 then
-        [ Font.size 24
+    if size <= 10000 then
+        [ Font.size 22
+        , Font.color <| black 0.86
+        , Font.family
+            [ Font.typeface "PTSerif-Regular"
+            ]
         ]
-
-    else if size > 140 && size <= 500 then
-        [ Font.italic
-        , Font.size 16
-        ]
-
-    else if size > 500 && size <= 1800 then
-        [ Font.size 14 ]
 
     else
         []
@@ -1494,7 +1476,7 @@ viewDAGasTable zipper =
                     , Font.bold
                     , width <| px 150
                     , height fill
-                    , Font.color <| darkGrey 1.0 --<| simpleColorCodeConverter child_node.color 1.0
+                    , Font.color <| darkGrey 1.0
                     ]
                     (viewCell False zipper child_node)
                     :: List.map (styled << Tree.label) (Tree.children child)
@@ -1506,8 +1488,7 @@ viewDAGasTable zipper =
         ]
         [ viewCrumbs node zipper
         , el
-            [ Font.size 20
-            , Font.color <| darkGrey 1.0
+            [ Font.color <| darkGrey 1.0
             , width fill
             , height shrink
             ]
@@ -1528,7 +1509,6 @@ viewNotifications notifications =
         style color =
             [ width fill
             , paddingXY 10 8
-            , Font.size 14
             , Background.color <| color 1.0
             , Border.width 1
             , Border.color <| color 1.0
@@ -1541,10 +1521,10 @@ viewNotifications notifications =
                     row (style orange) [ text str, clearNotificationsButton ]
 
                 PinAdd str ->
-                    row (style green) [ text str, clearNotificationsButton ]
+                    row (style lime) [ text str, clearNotificationsButton ]
 
                 Requesting str ->
-                    el [ Font.size 18, Font.color <| darkGrey 1.0 ] <| text str
+                    el [ Font.color <| darkGrey 1.0 ] <| text str
     in
     case notifications of
         [] ->
@@ -1870,33 +1850,6 @@ isPinned url hash =
         |> Task.andThen (Task.succeed << Dict.member hash)
 
 
-
---pin : Url -> Hash -> Task Http.Error (List String)
---pin url hash =
---    Api.task "GET"
---        (Endpoint.pinAdd url hash)
---        Http.emptyBody
---        (Decode.field "Pins" <| Decode.list Decode.string)
---pinNode : Url -> Node -> Task Http.Error Node
---pinNode url node =
---    List.map (pin url) [ node.cid, node.links ]
---        |> Task.sequence
---        |> Task.andThen (\_ -> Task.succeed node)
---pinDAG : Url -> Node -> List Node -> Task Http.Error (List Node)
---pinDAG url node acc =
---    pinNode url node
---        |> Task.andThen (fetchChildren url)
---        |> Task.andThen
---            (\nodes ->
---                if List.isEmpty nodes then
---                    Task.succeed (node :: acc)
---                else
---                    List.map (\x -> pinDAG url x (node :: acc)) nodes
---                        |> Task.sequence
---                        |> Task.andThen (Task.succeed << List.concat)
---            )
-
-
 createCommit : Url -> Repo.Author -> Repo -> String -> String -> Cmd Msg
 createCommit url author repo key comment =
     let
@@ -2009,33 +1962,6 @@ simpleColorCodeConverter i alpha =
 
 
 -- HELPERS
---checkChildrenChanges : Url -> List Int -> List Node -> Changes -> List Node
---checkChildrenChanges url location nodes changes =
---    let
---        check location nodes changes acc =
---            case Dict.get (parent_location ++ List.length acc) changes of
---                Just maybe_node ->
---                    case maybe_node of
---                        Just node ->
---                            check parent_location (acc ++ node)
---                        Nothing ->
---                            acc
---                Nothing ->
---                    case List.filter ((==) (parent_location ++ List.length acc)) nodes of
---    in
---    List.map (replaceChanged changes) nodes
---        |> addedNodes location changes
---addedNodes : List Int -> Changes -> List Node -> List Node
---addedNodes location nodes changes =
---            case Dict.get location changes of
---                Just maybe_node ->
---                    case maybe_node of
---                        Just node ->
---                            addedNodes location (nodes ++ node)
---                        Nothing ->
---                            nodes
---                Nothing ->
---                    nodes
 
 
 changesWithDiff : Diff Node -> Changes -> Changes
@@ -2044,10 +1970,8 @@ changesWithDiff diff changes =
         Copy label list_diff tail ->
             (case tail of
                 Left list ->
-                    --List.foldl (\x d -> Dict.remove (Tree.label x |> .location) d)
                     changes
 
-                --list
                 Right list ->
                     List.foldl (\x d -> Dict.insert (Tree.label x |> .location) (Tree.label x) d) changes list
 
@@ -2071,15 +1995,6 @@ currentLocation dag =
 oneLevelTree : Zipper Node -> Tree Node
 oneLevelTree zipper =
     Tree.tree (Zipper.label zipper) (List.map (\tree -> Tree.tree (Tree.label tree) []) <| Zipper.children zipper)
-
-
-
-{-
-   insertTree : Zipper Node -> Changes -> Changes
-   insertTree zipper changes =
-       Dict.insert (Zipper.label zipper |> .location) (oneLevelTree zipper) changes
-
--}
 
 
 contentIsEditing : Remote (List { a | status : Status }) -> Bool

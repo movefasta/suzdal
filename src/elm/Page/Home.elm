@@ -75,7 +75,6 @@ view model =
         , height fill
         , padding 40
         , spacing 25
-        , Font.size 12
         , Font.color <| white 0.95
         , Background.color <| Colors.black 0.8
         , scrollbarY
@@ -130,7 +129,7 @@ viewEditableRepo ( key, repo ) =
             { onChange = \new -> UpdateRepo ( key, { repo | description = new } )
             , text = repo.description
             , placeholder = Just <| Input.placeholder [] <| text "Описание репозитория"
-            , label = Input.labelAbove [ Font.color <| orange 1.0, Font.size 11 ] <| validateText 50 repo.description
+            , label = Input.labelAbove [ Font.color <| orange 1.0 ] <| validateText 50 repo.description
             }
         , Button.delete False <| DeleteRepo key
         ]

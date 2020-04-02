@@ -74,12 +74,12 @@ view model =
     in
     case model.page of
         Welcome welcome ->
-            { title = "Добро пожаловать в Суз-Даль"
+            { title = "Добро пожаловать в Суздаль"
             , body = List.map (Html.map GotWelcomeMsg) <| Layout.toHtml <| Welcome.view welcome
             }
 
         Home home ->
-            { title = "Список репозиториев"
+            { title = "Список репозиториев Суздаль"
             , body = List.map (Html.map GotHomeMsg) <| Layout.toHtml <| Home.view home
             }
 
