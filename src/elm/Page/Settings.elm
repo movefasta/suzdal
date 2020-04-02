@@ -579,10 +579,10 @@ viewPeer peer =
                 Online swarmstatus ->
                     case swarmstatus of
                         InSwarm ->
-                            ( Colors.green, "В сети, в рое" )
+                            ( Colors.lime, "В сети, в рое" )
 
                         OutOfSwarm ->
-                            ( Colors.green, "В сети, вне роя" )
+                            ( Colors.lime, "В сети, вне роя" )
 
                 Offline ->
                     ( Colors.orange, "Недоступен" )

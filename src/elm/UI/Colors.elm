@@ -6,6 +6,7 @@ module UI.Colors exposing
     , fromHsl
     , green
     , lightGrey
+    , lime
     , orange
     , red
     , violet
@@ -191,6 +192,11 @@ yellow alpha =
 green : Float -> Color
 green alpha =
     rgba255 187 255 187 alpha
+
+
+lime : Float -> Color
+lime alpha =
+    rgba255 152 237 0 alpha
 
 
 cyan : Float -> Color
