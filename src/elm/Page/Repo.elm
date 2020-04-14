@@ -242,7 +242,9 @@ update msg model =
             ( { model | zipper = Success newZipper }, checkNodeForChanges url repo.tree newZipper )
 
         GotValidatedLinks _ (Err _) ->
-            ( { model | notifications = [ ServerError "Обновление дочерних ячеек отменено. Проверьте хэш" ] }, Cmd.none )
+            ( { model | notifications = [ ServerError "Обновление дочерних ячеек отменено. Проверьте корректность и доступность хэша" ] }
+            , Cmd.none
+            )
 
         GotValidatedContent zipper node (Ok content) ->
             let
@@ -509,11 +511,11 @@ update msg model =
             if node.location == model.repo.location then
                 ( { model | zipper = Success <| Zipper.replaceLabel node zipper, showchanges = False }
                 , if node.editing then
-                    Dom.focus (Route.locationToString "/" node.location)
-                        |> Task.attempt (\_ -> NoOp)
+                    Cmd.none
 
                   else
-                    Cmd.none
+                    Dom.focus (Route.locationToString "/" node.location)
+                        |> Task.attempt (\_ -> NoOp)
                 )
 
             else
@@ -909,6 +911,8 @@ cellStyle node changes dag =
             [ width fill
             , height fill
             , Background.color <| simpleColorCodeConverter node.color alpha
+            , Font.bold
+            , Font.color <| black alpha
             , htmlAttribute <| Html.Attributes.style "overflow" "hidden"
             , htmlAttribute <| Html.Attributes.style "white-space" "nowrap"
             , htmlAttribute <| Html.Attributes.style "text-overflow" "ellipsis"
@@ -960,7 +964,7 @@ viewDAG model dag =
         , clip
         ]
         [ column
-            [ width <| px 700
+            [ width <| px 800
             , spacing 15
             , alignTop
             , height fill
@@ -972,7 +976,7 @@ viewDAG model dag =
 
               else
                 column
-                    [ width <| px 700
+                    [ width fill
                     , spacing 15
                     , alignTop
                     , height fill
@@ -1183,9 +1187,10 @@ viewCell shownodeprops dag node =
             , htmlAttribute <| Html.Attributes.title node.description
             , Event.onClick <| ChangeFocus dag node
             , Event.onDoubleClick <| ChangeFocus dag { node | editing = True }
-            , text (Route.locationToString "/" node.location)
-                |> el [ padding 3, transparent (not shownodeprops) ]
-                |> inFront
+
+            --, text (Route.locationToString "/" node.location)
+            --    |> el [ padding 3, transparent (not shownodeprops), Font.size 10, Font.color <| black 0.8, Font.medium ]
+            --    |> inFront
             ]
         <|
             paragraph
@@ -1204,22 +1209,20 @@ viewNodeProps zipper show =
             Zipper.label zipper
 
         inputStyle =
-            [ width fill
-            , spacing 5
+            [ spacing 5
             , padding 4
-            , Background.color <| lightGrey 1.0
+            , alignRight
+            , Background.color <| white 1.0
             , Border.widthEach { edges | bottom = 1 }
             , Border.color <| darkGrey 1.0
             , Border.rounded 0
-            , alignRight
-            , Font.bold
             ]
     in
     if show then
         column
             [ width fill
             , spacing 10
-            , Background.color <| lightGrey 1.0
+            , Background.color <| lightGrey 0.8
             , Border.rounded 5
             , padding 10
             ]
@@ -1228,19 +1231,55 @@ viewNodeProps zipper show =
                 { onChange = \new -> ValidateContent zipper { node | cid = new }
                 , text = node.cid
                 , placeholder = Just <| Input.placeholder [] <| text "Идентификатор контента - хэш"
-                , label = Input.labelAbove [] <| el [] <| text "Адрес файлов"
+                , label = Input.labelLeft [ width <| px 200 ] <| text "Адрес файлов"
                 }
             , Input.text
                 inputStyle
                 { onChange = \new -> ValidateLinks zipper { node | links = new }
                 , text = node.links
                 , placeholder = Just <| Input.placeholder [] <| text "Ссылки"
-                , label = Input.labelAbove [] <| el [] <| text "Адрес дочерних ячеек"
+                , label = Input.labelLeft [ width <| px 200 ] <| text "Адрес дочерних ячеек"
                 }
             , row [ spacing 5 ]
-                [ text "Адрес ячейки в дереве"
-                , viewLocation node.location
+                [ el [ width <| px 200 ] <| text "Адрес ячейки в дереве"
+                , el [ alignRight ] <| viewLocation node.location
                 ]
+            , Input.radioRow
+                [ width fill
+                , spacing 5
+                ]
+                { onChange = \new -> UpdateFocus <| Zipper.replaceLabel { node | color = new } zipper
+                , selected = Just node.color
+                , label = Input.labelLeft [ width <| px 200, centerY ] <| text "Цвет заливки ячейки"
+                , options =
+                    let
+                        option i x =
+                            el
+                                [ width <| px 30
+                                , height <| px 25
+                                , Border.widthEach { bottom = 3, left = 0, right = 0, top = 0 }
+                                , Border.color <| black 1
+                                , Background.color <| simpleColorCodeConverter i 1.0
+                                , Border.color <|
+                                    case x of
+                                        Input.Idle ->
+                                            white 0
+
+                                        Input.Focused ->
+                                            lightGrey 0.8
+
+                                        Input.Selected ->
+                                            black 1.0
+                                ]
+                            <|
+                                text ""
+                    in
+                    List.range 0 9
+                        |> List.map
+                            (\code ->
+                                Input.optionWith code (option code)
+                            )
+                }
             ]
 
     else

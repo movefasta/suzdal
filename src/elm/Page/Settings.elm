@@ -452,7 +452,6 @@ view model =
         row
             [ width fill
             , height fill
-            , Font.size 12
             , paddingXY 25 10
             , alignTop
             , spacing 20

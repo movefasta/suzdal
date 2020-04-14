@@ -18,39 +18,6 @@ import Element exposing (Color, rgba, rgba255)
 
 
 
---, Input.radioRow
---    [ width fill
---    , spacing 5
---    ]
---    { onChange = \new -> UpdateFocus { node | color = new }
---    , selected = Just node.color
---    , label = Input.labelAbove [ padding 3 ] (el [ Font.size 10 ] <| text "Цвет")
---    , options =
---        let
---            option i x =
---                el
---                    [ width <| px 30
---                    , height <| px 25
---                    , Border.widthEach { bottom = 3, left = 0, right = 0, top = 0 }
---                    , Background.color <| colorCodeConverter i hue 1.0
---                    , Border.color <|
---                        case x of
---                            Input.Idle ->
---                                white 0
---                            Input.Focused ->
---                                lightGrey 0.8
---                            Input.Selected ->
---                                darkGrey 1.0
---                    ]
---                <|
---                    text ""
---        in
---        List.range 0 9
---            |> List.map
---                (\code ->
---                    Input.optionWith code (option code)
---                )
---    }
 -- FROM HSL
 
 
@@ -186,12 +153,12 @@ red alpha =
 
 yellow : Float -> Color
 yellow alpha =
-    rgba255 255 255 187 alpha
+    rgba255 253 252 132 alpha
 
 
 green : Float -> Color
 green alpha =
-    rgba255 187 255 187 alpha
+    rgba255 202 250 137 alpha
 
 
 lime : Float -> Color
@@ -201,7 +168,7 @@ lime alpha =
 
 cyan : Float -> Color
 cyan alpha =
-    rgba255 187 255 255 alpha
+    rgba255 154 234 255 alpha
 
 
 blue : Float -> Color
@@ -211,7 +178,7 @@ blue alpha =
 
 violet : Float -> Color
 violet alpha =
-    rgba255 255 187 255 alpha
+    rgba255 252 156 233 alpha
 
 
 lightGrey : Float -> Color
