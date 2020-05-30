@@ -117,7 +117,7 @@ if (MODE === "development") {
         },
         devServer: {
             inline: true,
-            contentBase: path.join(__dirname, './dist'),
+            contentBase: path.join(__dirname, './src/static/assets'),
             compress: true,
             port: 3000
             }
