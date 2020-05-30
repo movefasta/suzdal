@@ -57,7 +57,7 @@ pathEncoder path =
 get : Endpoint -> (Result Http.Error a -> msg) -> Decoder a -> Cmd msg
 get url trigger decoder =
     Endpoint.request
-        { method = "GET"
+        { method = "POST"
         , url = url
         , expect = Http.expectJson trigger decoder
         , headers = []

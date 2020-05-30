@@ -499,24 +499,24 @@ type RepoType
 
 fetchRepo : Url -> String -> Task Http.Error Repo
 fetchRepo url repo_key =
-    Api.task "GET" (Endpoint.filesRead url <| pathToRepo repo_key ++ "/repo.json") Http.emptyBody repoDecoder
+    Api.task "POST" (Endpoint.filesRead url <| pathToRepo repo_key ++ "/repo.json") Http.emptyBody repoDecoder
 
 
 fetchChildren : Url -> Node -> String -> Task Http.Error (List Node)
 fetchChildren url node repo_key =
     Decode.list folderDecoder
-        |> Api.task "GET" (Endpoint.filesLs url <| pathToNodeFolder repo_key node.location ++ "/links") Http.emptyBody
+        |> Api.task "POST" (Endpoint.filesLs url <| pathToNodeFolder repo_key node.location ++ "/links") Http.emptyBody
         |> Task.andThen (Task.sequence << List.map (fetchNode url) << List.filter isLink)
 
 
 fetchNode : Url -> IpfsObject -> Task Http.Error Node
 fetchNode url obj =
-    Api.task "GET" (Endpoint.dagGet url <| obj.hash ++ "/node.json") Http.emptyBody nodeDecoder
+    Api.task "POST" (Endpoint.dagGet url <| obj.hash ++ "/node.json") Http.emptyBody nodeDecoder
 
 
 fetchObject : Url -> Hash -> Task Http.Error IpfsObject
 fetchObject url hash =
-    Api.task "GET" (Endpoint.objectGet url hash) Http.emptyBody folderDecoder
+    Api.task "POST" (Endpoint.objectGet url hash) Http.emptyBody folderDecoder
 
 
 type alias Object =
