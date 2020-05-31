@@ -23,6 +23,7 @@ import Json.Decode as Decode
 import Json.Encode as Encode
 import List.Extra
 import Loading exposing (spinner)
+import Markdown
 import MimeType as Mime
 import Repo exposing (Changes, Commit, Node, Remote(..), Repo, ipldNodeEncoder, nodeDecoder)
 import Result exposing (Result)
@@ -643,7 +644,7 @@ update msg model =
 
         AddText content ->
             ( { model | content = Success (Content.addText content) }
-            , Task.attempt (\_ -> NoOp) <| Dom.focus "file-id-0"
+            , Task.attempt (\_ -> NoOp) <| Dom.focus <| String.append "file-id-" <| String.fromInt (List.length content)
             )
 
         PassedSlowLoadThreshold ->
@@ -1391,6 +1392,51 @@ viewLink url zipper link =
         [ viewLinkActions url zipper link
         , el style <|
             case link.mimetype of
+                Just (Mime.Text Mime.PlainText) ->
+                    if link.status == Editing then
+                        Input.multiline
+                            ([ height (shrink |> minimum 30)
+                             , width fill
+                             , padding 5
+                             , spacing 5
+                             , Border.widthEach edges
+                             , Border.color <| white 1.0
+                             , Border.rounded 0
+                             , htmlAttribute <| Html.Attributes.id <| String.concat [ "file-id-", String.fromInt link.id ]
+                             , Event.onLoseFocus <|
+                                if String.isEmpty link.description then
+                                    Perform zipper <| Remove link
+
+                                else
+                                    Perform zipper <| Set { link | status = Changed }
+                             ]
+                                ++ fontBy link.size
+                            )
+                            { onChange =
+                                \new -> Perform zipper <| Set { link | description = new, size = String.length new }
+                            , text = link.description
+                            , placeholder = Just <| Input.placeholder [] <| el [] none
+                            , label = Input.labelHidden "Text data input"
+                            , spellcheck = True
+                            }
+
+                    else
+                        paragraph
+                            ([ width fill
+                             , padding 5
+                             , spacing 5
+                             , clip
+
+                             --, mouseOver [ Background.color <| lightGrey 0.2 ]
+                             ]
+                                ++ fontBy link.size
+                            )
+                        <|
+                            [ E.html <|
+                                Markdown.toHtml [] link.description
+                            ]
+
+                --    [ text link.description ]
                 Just (Mime.Video _) ->
                     column
                         [ width fill
@@ -1434,46 +1480,6 @@ viewLink url zipper link =
                         , description = link.name
                         }
 
-                Just (Mime.Text Mime.PlainText) ->
-                    if link.status == Editing then
-                        Input.multiline
-                            ([ height (shrink |> minimum 30)
-                             , width fill
-                             , padding 5
-                             , spacing 5
-                             , Border.widthEach edges
-                             , Border.color <| white 1.0
-                             , Border.rounded 0
-                             , htmlAttribute <| Html.Attributes.id <| String.concat [ "file-id-", String.fromInt link.id ]
-                             , Event.onLoseFocus <|
-                                if String.isEmpty link.description then
-                                    Perform zipper <| Remove link
-
-                                else
-                                    Perform zipper <| Set { link | status = Changed }
-                             ]
-                                ++ fontBy link.size
-                            )
-                            { onChange =
-                                \new -> Perform zipper <| Set { link | description = new, size = String.length new }
-                            , text = link.description
-                            , placeholder = Just <| Input.placeholder [] <| el [] none
-                            , label = Input.labelHidden "Text data input"
-                            , spellcheck = True
-                            }
-
-                    else
-                        paragraph
-                            ([ width fill
-                             , padding 5
-                             , spacing 5
-                             , clip
-                             , mouseOver [ Background.color <| lightGrey 0.2 ]
-                             ]
-                                ++ fontBy link.size
-                            )
-                            [ text link.description ]
-
                 _ ->
                     row
                         [ width fill
@@ -1502,7 +1508,7 @@ viewLink url zipper link =
 
 fontBy : Int -> List (E.Attribute Msg)
 fontBy size =
-    if size <= 10000 then
+    if size <= 100000 then
         [ Font.size 22
         , Font.color <| black 0.86
         , Font.family
