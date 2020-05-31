@@ -1682,12 +1682,12 @@ fetchHistory i url hash history =
 
 fetchCommit : Url -> Hash -> Task Http.Error Commit
 fetchCommit url hash =
-    Api.task "GET" (Endpoint.dagGet url hash) Http.emptyBody Repo.commitDecoder
+    Api.task "POST" (Endpoint.dagGet url hash) Http.emptyBody Repo.commitDecoder
 
 
 fetchHead : Url -> Hash -> Task Http.Error (Maybe Hash)
 fetchHead url hash =
-    Api.task "GET" (Endpoint.dagGet url hash) Http.emptyBody Repo.commitDecoder
+    Api.task "POST" (Endpoint.dagGet url hash) Http.emptyBody Repo.commitDecoder
         |> Task.andThen (Task.succeed << .parent)
 
 
@@ -1704,7 +1704,7 @@ treeIsChanged url repo =
 
 fetchDAG : Url -> Path -> Changes -> Cmd Msg
 fetchDAG url path changes =
-    Api.task "GET" (Endpoint.dagGet url path.cid) Http.emptyBody nodeDecoder
+    Api.task "POST" (Endpoint.dagGet url path.cid) Http.emptyBody nodeDecoder
         |> Task.andThen
             (\node ->
                 fetchZipper url ({ path | location = [] } :: pathlist path) changes (Zipper.fromTree <| Tree.tree node [])
@@ -1735,7 +1735,7 @@ fetchChildren url zipper changes =
             Maybe.withDefault (Zipper.label zipper) (Dict.get (.location <| Zipper.label zipper) changes)
     in
     Decode.list nodeToTree
-        |> Api.task "GET" (Endpoint.dagGet url node.links) Http.emptyBody
+        |> Api.task "POST" (Endpoint.dagGet url node.links) Http.emptyBody
         |> Task.andThen (Task.succeed << indexChildren << Tree.tree node)
         |> Task.andThen (\tree -> Task.succeed <| Zipper.replaceTree tree zipper)
 
@@ -1743,7 +1743,7 @@ fetchChildren url zipper changes =
 getChildren : Url -> Node -> Task Http.Error (Tree Node)
 getChildren url node =
     Decode.list nodeToTree
-        |> Api.task "GET" (Endpoint.dagGet url node.links) Http.emptyBody
+        |> Api.task "POST" (Endpoint.dagGet url node.links) Http.emptyBody
         |> Task.andThen (Task.succeed << indexChildren << Tree.tree node)
 
 
@@ -1761,7 +1761,7 @@ getTreeOnDepth url depth tree =
 
 fetchWholeDAG : Url -> Hash -> Tree Node -> Task Http.Error (Tree Node)
 fetchWholeDAG url cid tree =
-    Api.task "GET" (Endpoint.dagGet url cid) Http.emptyBody nodeDecoder
+    Api.task "POST" (Endpoint.dagGet url cid) Http.emptyBody nodeDecoder
         |> Task.andThen (getChildren url)
         |> Task.andThen (fetchWholeDAGhelp url << Zipper.fromTree)
         |> Task.andThen (Task.succeed << Zipper.toTree)
@@ -1786,7 +1786,7 @@ checkNodeForChanges url roothash zipper =
         node =
             Zipper.label zipper
     in
-    Api.task "GET" (Endpoint.node url { cid = roothash, location = node.location }) Http.emptyBody nodeDecoder
+    Api.task "POST" (Endpoint.node url { cid = roothash, location = node.location }) Http.emptyBody nodeDecoder
         |> Task.andThen (\x -> Task.succeed <| compareNodes x node)
         |> Task.onError (\_ -> Task.succeed True)
         |> Task.attempt (NodeChanged zipper)
@@ -1895,12 +1895,12 @@ fetchTree url path tree =
 
 fetchTargetNode : Url -> Path -> Task Http.Error Node
 fetchTargetNode url path =
-    Api.task "GET" (Endpoint.node url path) Http.emptyBody nodeDecoder
+    Api.task "POST" (Endpoint.node url path) Http.emptyBody nodeDecoder
 
 
 fetchTargetLinks : Url -> Path -> Task Http.Error (List Node)
 fetchTargetLinks url path =
-    Api.task "GET" (Endpoint.links url path) Http.emptyBody (Decode.list nodeDecoder)
+    Api.task "POST" (Endpoint.links url path) Http.emptyBody (Decode.list nodeDecoder)
 
 
 pinRepoTree : Url -> Hash -> Hash -> Task Http.Error (List String)
@@ -1908,7 +1908,7 @@ pinRepoTree url old_hash new_hash =
     isPinned url old_hash
         |> Task.andThen
             (\pinned ->
-                Api.task "GET"
+                Api.task "POST"
                     (if pinned then
                         Endpoint.pinUpdate url old_hash new_hash
 
@@ -1923,7 +1923,7 @@ pinRepoTree url old_hash new_hash =
 isPinned : Url -> Hash -> Task Http.Error Bool
 isPinned url hash =
     Decode.field "Keys" (Decode.dict (Decode.field "Type" Decode.string))
-        |> Api.task "GET" (Endpoint.pinLs url Nothing) Http.emptyBody
+        |> Api.task "POST" (Endpoint.pinLs url Nothing) Http.emptyBody
         |> Task.andThen (Task.succeed << Dict.member hash)
 
 
