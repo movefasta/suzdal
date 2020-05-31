@@ -88,7 +88,7 @@ pickFiles msg =
 
 addText : Content -> Content
 addText content =
-    List.indexedMap (\i a -> { a | id = i }) <| [ initText ] ++ content
+    List.indexedMap (\i a -> { a | id = i }) <| content ++ [ initText ]
 
 
 initText : Link
