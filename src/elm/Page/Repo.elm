@@ -1621,6 +1621,14 @@ viewNotifications notifications =
                 , rotate = 0
                 , scale = 1
                 }
+        , htmlAttribute <|
+            Animator.Inline.opacity notifications <|
+                \state ->
+                    if List.isEmpty state then
+                        Animator.at 0
+
+                    else
+                        Animator.at 1
         ]
     <|
         case Animator.current notifications of
