@@ -499,19 +499,19 @@ viewSettings settings =
     column
         [ width fill, height fill, spacing 15, alignTop ]
         [ header "Настройки отображения"
-        , Input.checkbox []
-            { onChange = InvertShowNodeProps
-            , icon = Input.defaultCheckbox
-            , checked = settings.shownodeprops
-            , label = Input.labelRight [ spacing 7 ] <| text "Показывать подробную информацию о выбранной ячейке"
-            }
-        , Input.checkbox []
-            { onChange = EnableAnimation
-            , icon = Input.defaultCheckbox
-            , checked = settings.animation
-            , label = Input.labelRight [ spacing 7 ] <| text "Использовать анимацию в интерфейсе"
-            }
+        , checkbox "Показывать подробную информацию о выбранной ячейке" settings.shownodeprops InvertShowNodeProps
+        , checkbox "Использовать анимацию в интерфейсе" settings.animation EnableAnimation
         ]
+
+
+checkbox : String -> Bool -> (Bool -> msg) -> Element msg
+checkbox label parameter msg =
+    Input.checkbox []
+        { onChange = msg
+        , icon = Input.defaultCheckbox
+        , checked = parameter
+        , label = Input.labelRight [ spacing 7 ] (text label)
+        }
 
 
 viewRepoStat : RepoStat -> Element Msg
