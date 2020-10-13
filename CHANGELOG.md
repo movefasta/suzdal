@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.4] - 2020-10-13
+
+### Changed
+- switch to IPFS 0.7.0
+- by default ipfs-node connects to another peers without p2p-circuit relay
+- updated elm-ui version
+- new content added to tail of content list
+
+### Fixed
+- save user settings to filestorage
+
 ## [0.4.3] - 2020-04-14
 
 ### Added
@@ -29,7 +40,6 @@
 ### Fixed
 - text content updating
 - input form now doesn't change color of focused node
-
 
 ## [0.4.1] - 2020-02-09
 
