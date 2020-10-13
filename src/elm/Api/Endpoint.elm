@@ -90,7 +90,8 @@ connect url peerid relay =
         ++ "/swarm/connect?arg="
         --++ "/ipfs/"
         --++ relay
-        ++ "/p2p-circuit/ipfs/"
+        --++ "/p2p-circuit
+        ++ "/ipfs/"
         ++ peerid
         |> Endpoint
 
