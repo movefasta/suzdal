@@ -1,6 +1,6 @@
 {
   "name": "suzdal",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "Suzdal Ontology Framework UI",
   "main": "index.js",
   "author": "Igor Brylyov",

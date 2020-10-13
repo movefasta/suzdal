@@ -1,6 +1,7 @@
 module Page.Repo exposing (Model, Msg, init, subscriptions, toSession, update, view)
 
-import Animation
+import Animator
+import Animator.Inline
 import Api exposing (Hash, jsonToHttpBody)
 import Api.Endpoint as Endpoint exposing (Endpoint)
 import Browser.Dom as Dom
@@ -65,12 +66,22 @@ subscriptions model =
 
         animationSub =
             if model.session.settings.animation then
-                Animation.subscription Animate [ model.style ]
+                Animator.toSubscription Tick model animator
 
             else
                 Sub.none
     in
-    Sub.batch [ keySub, animationSub ]
+    Sub.batch [ keySub, animationSub, Time.every 10000 OneSecondExpired ]
+
+
+animator : Animator.Animator Model
+animator =
+    Animator.watching
+        .notifications
+        (\newnotifications model ->
+            { model | notifications = newnotifications }
+        )
+        Animator.animator
 
 
 
@@ -87,14 +98,13 @@ init key repo session =
             , zipper = Loading
             , content = Loading
             , log = NotAsked
-            , notifications = []
+            , notifications = Animator.init []
             , hover = False
             , utc = Time.utc
             , showchanges = False
             , diff = Nothing
             , dagRenderStyle = AsTree
             , blockEdit = False
-            , style = Animation.style [ Animation.opacity 0.0 ]
             }
     in
     ( initModel
@@ -119,7 +129,7 @@ init key repo session =
 
 type alias Model =
     { session : Session
-    , notifications : List Notification
+    , notifications : Animator.Timeline (List Notification)
     , key : String
     , repo : Repo
     , zipper : Remote DAG
@@ -131,7 +141,6 @@ type alias Model =
     , diff : Maybe (Diff Node)
     , dagRenderStyle : DAGstyle
     , blockEdit : Bool
-    , style : Animation.State
     }
 
 
@@ -143,12 +152,6 @@ type Action
     = Remove Link
     | Set Link
     | Move Link Int
-
-
-type alias Styles =
-    { open : List Animation.Property
-    , closed : List Animation.Property
-    }
 
 
 type DAGstyle
@@ -200,12 +203,13 @@ type Msg
     | GotTree (Tree Node) (Result Http.Error (Tree Node))
     | DiffFocusedTree DAG
     | SetRenderStyle DAG DAGstyle
-    | Animate Animation.Msg
     | GotAddedTextHash DAG (List Link) (Result Http.Error Link)
     | ValidateLinks DAG Node
     | ValidateContent DAG Node
     | GotValidatedContent DAG Node (Result Http.Error Content)
     | GotValidatedLinks DAG (Result Http.Error (Tree Node))
+    | Tick Time.Posix
+    | OneSecondExpired Time.Posix
 
 
 
@@ -226,8 +230,18 @@ update msg model =
 
         url =
             model.session.url
+
+        animateNotification list =
+            Animator.go (Animator.seconds 0.9) list model.notifications
     in
     case msg of
+        OneSecondExpired _ ->
+            ( model, Cmd.none )
+
+        --( { model | notifications = animateNotification [] }, Cmd.none )
+        Tick newTime ->
+            ( Animator.update newTime animator model, Cmd.none )
+
         ValidateLinks zipper node ->
             ( model, getChildren url node |> Task.attempt (GotValidatedLinks zipper) )
 
@@ -242,7 +256,10 @@ update msg model =
             ( { model | zipper = Success newZipper }, checkNodeForChanges url repo.tree newZipper )
 
         GotValidatedLinks _ (Err _) ->
-            ( { model | notifications = [ ServerError "Обновление дочерних ячеек отменено. Проверьте корректность и доступность хэша" ] }
+            ( { model
+                | notifications =
+                    animateNotification [ ServerError "Обновление дочерних ячеек отменено. Проверьте корректность и доступность хэша" ]
+              }
             , Cmd.none
             )
 
@@ -254,21 +271,18 @@ update msg model =
             ( { model | zipper = Success newZipper, content = Success content }, checkNodeForChanges url repo.tree newZipper )
 
         GotValidatedContent _ _ (Err _) ->
-            ( { model | notifications = [ ServerError "Обновление файлов отменено. Проверьте хэш" ] }, Cmd.none )
+            ( { model | notifications = animateNotification [ ServerError "Обновление файлов отменено. Проверьте хэш" ] }, Cmd.none )
 
         SetRenderStyle zipper style ->
             ( { model | dagRenderStyle = style }
             , Task.attempt (AddSubTree zipper) <| getTreeOnDepth url 2 (Zipper.tree zipper)
             )
 
-        Animate animMsg ->
-            ( { model | style = Animation.update animMsg model.style }, Cmd.none )
-
         RootHashRecursivelyPinned (Ok pins) ->
-            ( { model | notifications = [ PinAdd <| "Успешно сохранено" ] }, Cmd.none )
+            ( { model | notifications = animateNotification [ PinAdd <| "Успешно сохранено" ] }, Cmd.none )
 
         RootHashRecursivelyPinned (Err _) ->
-            ( { model | notifications = [ ServerError "Не удалось сохранить" ] }, Cmd.none )
+            ( { model | notifications = animateNotification [ ServerError "Не удалось сохранить" ] }, Cmd.none )
 
         DAGtoFileSystem dag ->
             ( model, nodeToFilestore url model.key dag )
@@ -284,7 +298,7 @@ update msg model =
             )
 
         NodeSaved zipper (Err _) ->
-            ( { model | notifications = [ ServerError "Не удалось сохранить" ] }, Cmd.none )
+            ( { model | notifications = animateNotification [ ServerError "Не удалось сохранить" ] }, Cmd.none )
 
         ShowChanges ->
             ( { model | showchanges = not model.showchanges }, Cmd.none )
@@ -341,12 +355,12 @@ update msg model =
                         ( { model | session = Session.updateRepo key { r | head = Just hash } model.session }, Cmd.none )
 
                     Nothing ->
-                        ( { model | notifications = [ ServerError <| "Updated repo named " ++ key ++ " doesn't exist anymore" ] }
+                        ( { model | notifications = animateNotification [ ServerError <| "Updated repo named " ++ key ++ " doesn't exist anymore" ] }
                         , Cmd.none
                         )
 
         GotCommitHash key (Err _) ->
-            ( { model | notifications = [ ServerError <| "Ошибка обновления истории хранилища" ++ key ] }, Cmd.none )
+            ( { model | notifications = animateNotification [ ServerError <| "Ошибка обновления истории хранилища" ++ key ] }, Cmd.none )
 
         GotDAG (Ok dag) ->
             ( { model | zipper = Success dag, blockEdit = False }
@@ -368,7 +382,7 @@ update msg model =
             ( { model | log = Success log }, Cmd.none )
 
         GotLog (Err _) ->
-            ( { model | notifications = [ ServerError "Ошибка загрузки истории изменений" ] }, Cmd.none )
+            ( { model | notifications = animateNotification [ ServerError "Ошибка загрузки истории изменений" ] }, Cmd.none )
 
         RemoveFocus removed_tree ex_parent parent ->
             let
@@ -413,7 +427,7 @@ update msg model =
             )
 
         LinksHashReplaced (Err _) ->
-            ( { model | notifications = [ ServerError <| "Ошибка при обновлении поля links у родителя (LinksHashReplaced) " ] }
+            ( { model | notifications = animateNotification [ ServerError <| "Ошибка при обновлении поля links у родителя (LinksHashReplaced) " ] }
             , Cmd.none
             )
 
@@ -452,7 +466,7 @@ update msg model =
             )
 
         NodeChanged _ (Err _) ->
-            ( { model | notifications = [ ServerError "Ошибка запроса изменения узла (NodeChanged Msg)" ] }, Cmd.none )
+            ( { model | notifications = animateNotification [ ServerError "Ошибка запроса изменения узла (NodeChanged Msg)" ] }, Cmd.none )
 
         KeyDowns code (Success zipper) ->
             let
@@ -488,7 +502,7 @@ update msg model =
             )
 
         GotUpdatedContentHash _ (Err _) ->
-            ( { model | notifications = [ ServerError "Ошибка запроса хэша файлов (GotUpdatedContentHash Msg)" ] }, Cmd.none )
+            ( { model | notifications = animateNotification [ ServerError "Ошибка запроса хэша файлов (GotUpdatedContentHash Msg)" ] }, Cmd.none )
 
         ChangeFocus zipper node ->
             let
@@ -524,9 +538,8 @@ update msg model =
                     , repo = { repo | location = node.location }
                     , session = Session.updateRepo model.key { repo | location = node.location } model.session
                     , showchanges = False
-                    , notifications = [ Requesting "Запрос дочерних ячеек..." ]
 
-                    --, style = Animation.interrupt [ Animation.set [ Animation.opacity 0.0 ] ] model.style
+                    --, notifications = animateNotification [ Requesting "Запрос дочерних ячеек..." ]
                   }
                 , Cmd.batch
                     [ Content.fetchByCid url node.cid GotNodeContent
@@ -536,32 +549,27 @@ update msg model =
                 )
 
         ClearNotifications ->
-            ( { model | notifications = [] }, Cmd.none )
+            ( { model | notifications = animateNotification [] }, Cmd.none )
 
         AddSubTree zipper (Ok tree) ->
             let
                 newTree =
                     Tree.mapLabel (\x -> { x | expanded = False }) tree
             in
-            ( { model
-                | zipper = Success (Zipper.replaceTree newTree zipper)
-                , notifications = []
-              }
-            , Cmd.none
-            )
+            ( { model | zipper = Success (Zipper.replaceTree newTree zipper) }, Cmd.none )
 
         AddSubTree _ (Err _) ->
-            ( { model | notifications = [ ServerError "Ошибка загрузки дочерних ячеек" ] }, Cmd.none )
+            ( { model | notifications = animateNotification [ ServerError "Ошибка загрузки дочерних ячеек" ] }, Cmd.none )
 
         PinDAG (Ok nodes) ->
             ( { model
-                | notifications = [ PinAdd <| "Репозиторий успешно закреплён в сети с адресом " ++ String.concat nodes ]
+                | notifications = animateNotification [ PinAdd <| "Репозиторий успешно закреплён в сети с адресом " ++ String.concat nodes ]
               }
             , Cmd.none
             )
 
         PinDAG (Err _) ->
-            ( { model | notifications = [ ServerError "Не удалось сохранить" ] }, Cmd.none )
+            ( { model | notifications = animateNotification [ ServerError "Не удалось сохранить" ] }, Cmd.none )
 
         NoOp ->
             ( model, Cmd.none )
@@ -590,7 +598,7 @@ update msg model =
             ( { model | content = Success content }, Content.getCid url content |> Task.attempt (GotUpdatedContentHash zipper) )
 
         GotNewContent zipper (Err _) ->
-            ( { model | notifications = [ ServerError <| "Ошибка загрузки файлов (GotNewContent Msg)" ] }, Cmd.none )
+            ( { model | notifications = animateNotification [ ServerError "Ошибка загрузки файлов (GotNewContent Msg)" ] }, Cmd.none )
 
         GotNewRootHash key upd_repo (Ok cid) ->
             let
@@ -623,27 +631,26 @@ update msg model =
                 )
 
         GotNewRootHash key upd_repo (Err _) ->
-            ( { model | notifications = [ ServerError <| "Ошибка обновления репозитория (GotNewRootHash Msg)" ++ upd_repo.name ] }
+            ( { model | notifications = animateNotification [ ServerError <| "Ошибка обновления репозитория (GotNewRootHash Msg)" ++ upd_repo.name ] }
             , Cmd.none
             )
 
         GotNodeContent (Ok nodes) ->
             ( { model
                 | content = Success <| List.indexedMap (\i a -> { a | id = i }) nodes
-                , style = Animation.queue [ Animation.to [ Animation.opacity 1.0 ] ] model.style
               }
             , Cmd.none
             )
 
         GotNodeContent (Err _) ->
-            ( { model | notifications = [ ServerError <| "Ошибка запроса файлов (GotNodeContent Msg) по адресу " ] }, Cmd.none )
+            ( { model | notifications = animateNotification [ ServerError "Ошибка запроса файлов (GotNodeContent Msg) по адресу " ] }, Cmd.none )
 
         DownloadAsJson str ->
             ( model, File.Download.string "tree.json" "application/json" str )
 
         AddText content ->
             ( { model | content = Success (Content.addText content) }
-            , Task.attempt (\_ -> NoOp) <| Dom.focus "file-id-0"
+            , Task.attempt (\_ -> NoOp) <| Dom.focus <| String.append "file-id-" <| String.fromInt (List.length content)
             )
 
         PassedSlowLoadThreshold ->
@@ -682,7 +689,7 @@ update msg model =
             )
 
         GotAddedTextHash _ links (Err _) ->
-            ( { model | notifications = [ ServerError "Ошибка добавления текста (GotAddedTextHash)" ] }, Cmd.none )
+            ( { model | notifications = animateNotification [ ServerError "Ошибка добавления текста (GotAddedTextHash)" ] }, Cmd.none )
 
         Perform zipper action ->
             let
@@ -732,23 +739,14 @@ update msg model =
 
 view : Model -> { title : String, content : Element Msg }
 view model =
-    let
-        animation =
-            if model.session.settings.animation then
-                Animation.render model.style
-                    |> List.map htmlAttribute
-
-            else
-                []
-    in
     { title = "Трактовочная сеть Суздаль"
     , content =
         column
-            ([ spacing 15
-             , width fill
-             , height fill
-             , inFront (viewNotifications model.notifications)
-             , inFront <|
+            [ spacing 15
+            , width fill
+            , height fill
+            , inFront (viewNotifications model.notifications)
+            , inFront <|
                 if model.blockEdit then
                     el
                         [ width fill
@@ -760,9 +758,7 @@ view model =
 
                 else
                     none
-             ]
-                ++ animation
-            )
+            ]
             [ viewRemote (spinner "Загрузка дерева репозитория") (viewDAG model) model.zipper
             ]
     }
@@ -1574,16 +1570,18 @@ viewDAGasTable zipper =
         ]
 
 
-viewNotifications : List Notification -> Element Msg
+viewNotifications : Animator.Timeline (List Notification) -> Element Msg
 viewNotifications notifications =
     let
         style color =
             [ width fill
+            , spacing 80
             , paddingXY 10 8
             , Background.color <| color 1.0
             , Border.width 1
             , Border.color <| color 1.0
-            , Border.rounded 5
+            , Border.rounded 2
+            , Font.bold
             ]
 
         render notification =
@@ -1597,12 +1595,47 @@ viewNotifications notifications =
                 Requesting str ->
                     el [ Font.color <| darkGrey 1.0 ] <| text str
     in
-    case notifications of
-        [] ->
-            none
+    column
+        [ padding 30
+        , alignBottom
+        , alignLeft
+        , htmlAttribute <|
+            Animator.Inline.transform
+                { position =
+                    { x =
+                        Animator.move notifications <|
+                            \state ->
+                                if List.isEmpty state then
+                                    Animator.at (turns -100)
 
-        _ ->
-            column [ width fill, padding 15, alignBottom, alignLeft ] <| List.map render notifications
+                                else
+                                    Animator.at (turns 0)
+                    , y = 0
+                    }
+                , rotate = 0
+                , scale = 1
+                }
+        , htmlAttribute <|
+            Animator.Inline.opacity notifications <|
+                \state ->
+                    if List.isEmpty state then
+                        Animator.at 0
+
+                    else
+                        Animator.at 1
+        ]
+    <|
+        case Animator.current notifications of
+            [] ->
+                case Animator.previous notifications of
+                    [] ->
+                        [ none ]
+
+                    previous ->
+                        List.map render previous
+
+            current ->
+                List.map render current
 
 
 clearNotificationsButton : Element Msg
@@ -1676,12 +1709,12 @@ fetchHistory i url hash history =
 
 fetchCommit : Url -> Hash -> Task Http.Error Commit
 fetchCommit url hash =
-    Api.task "GET" (Endpoint.dagGet url hash) Http.emptyBody Repo.commitDecoder
+    Api.task "POST" (Endpoint.dagGet url hash) Http.emptyBody Repo.commitDecoder
 
 
 fetchHead : Url -> Hash -> Task Http.Error (Maybe Hash)
 fetchHead url hash =
-    Api.task "GET" (Endpoint.dagGet url hash) Http.emptyBody Repo.commitDecoder
+    Api.task "POST" (Endpoint.dagGet url hash) Http.emptyBody Repo.commitDecoder
         |> Task.andThen (Task.succeed << .parent)
 
 
@@ -1698,7 +1731,7 @@ treeIsChanged url repo =
 
 fetchDAG : Url -> Path -> Changes -> Cmd Msg
 fetchDAG url path changes =
-    Api.task "GET" (Endpoint.dagGet url path.cid) Http.emptyBody nodeDecoder
+    Api.task "POST" (Endpoint.dagGet url path.cid) Http.emptyBody nodeDecoder
         |> Task.andThen
             (\node ->
                 fetchZipper url ({ path | location = [] } :: pathlist path) changes (Zipper.fromTree <| Tree.tree node [])
@@ -1729,7 +1762,7 @@ fetchChildren url zipper changes =
             Maybe.withDefault (Zipper.label zipper) (Dict.get (.location <| Zipper.label zipper) changes)
     in
     Decode.list nodeToTree
-        |> Api.task "GET" (Endpoint.dagGet url node.links) Http.emptyBody
+        |> Api.task "POST" (Endpoint.dagGet url node.links) Http.emptyBody
         |> Task.andThen (Task.succeed << indexChildren << Tree.tree node)
         |> Task.andThen (\tree -> Task.succeed <| Zipper.replaceTree tree zipper)
 
@@ -1737,7 +1770,7 @@ fetchChildren url zipper changes =
 getChildren : Url -> Node -> Task Http.Error (Tree Node)
 getChildren url node =
     Decode.list nodeToTree
-        |> Api.task "GET" (Endpoint.dagGet url node.links) Http.emptyBody
+        |> Api.task "POST" (Endpoint.dagGet url node.links) Http.emptyBody
         |> Task.andThen (Task.succeed << indexChildren << Tree.tree node)
 
 
@@ -1755,7 +1788,7 @@ getTreeOnDepth url depth tree =
 
 fetchWholeDAG : Url -> Hash -> Tree Node -> Task Http.Error (Tree Node)
 fetchWholeDAG url cid tree =
-    Api.task "GET" (Endpoint.dagGet url cid) Http.emptyBody nodeDecoder
+    Api.task "POST" (Endpoint.dagGet url cid) Http.emptyBody nodeDecoder
         |> Task.andThen (getChildren url)
         |> Task.andThen (fetchWholeDAGhelp url << Zipper.fromTree)
         |> Task.andThen (Task.succeed << Zipper.toTree)
@@ -1780,7 +1813,7 @@ checkNodeForChanges url roothash zipper =
         node =
             Zipper.label zipper
     in
-    Api.task "GET" (Endpoint.node url { cid = roothash, location = node.location }) Http.emptyBody nodeDecoder
+    Api.task "POST" (Endpoint.node url { cid = roothash, location = node.location }) Http.emptyBody nodeDecoder
         |> Task.andThen (\x -> Task.succeed <| compareNodes x node)
         |> Task.onError (\_ -> Task.succeed True)
         |> Task.attempt (NodeChanged zipper)
@@ -1889,12 +1922,12 @@ fetchTree url path tree =
 
 fetchTargetNode : Url -> Path -> Task Http.Error Node
 fetchTargetNode url path =
-    Api.task "GET" (Endpoint.node url path) Http.emptyBody nodeDecoder
+    Api.task "POST" (Endpoint.node url path) Http.emptyBody nodeDecoder
 
 
 fetchTargetLinks : Url -> Path -> Task Http.Error (List Node)
 fetchTargetLinks url path =
-    Api.task "GET" (Endpoint.links url path) Http.emptyBody (Decode.list nodeDecoder)
+    Api.task "POST" (Endpoint.links url path) Http.emptyBody (Decode.list nodeDecoder)
 
 
 pinRepoTree : Url -> Hash -> Hash -> Task Http.Error (List String)
@@ -1902,7 +1935,7 @@ pinRepoTree url old_hash new_hash =
     isPinned url old_hash
         |> Task.andThen
             (\pinned ->
-                Api.task "GET"
+                Api.task "POST"
                     (if pinned then
                         Endpoint.pinUpdate url old_hash new_hash
 
@@ -1917,7 +1950,7 @@ pinRepoTree url old_hash new_hash =
 isPinned : Url -> Hash -> Task Http.Error Bool
 isPinned url hash =
     Decode.field "Keys" (Decode.dict (Decode.field "Type" Decode.string))
-        |> Api.task "GET" (Endpoint.pinLs url Nothing) Http.emptyBody
+        |> Api.task "POST" (Endpoint.pinLs url Nothing) Http.emptyBody
         |> Task.andThen (Task.succeed << Dict.member hash)
 
 
@@ -1936,7 +1969,7 @@ createCommit url author repo key comment =
             Api.jsonToHttpBody << Repo.commitEncoder << commit
     in
     Time.now
-        |> Task.andThen (\posix -> Api.task "PUT" (Endpoint.dagPut url) (body posix) Api.cidDecoder)
+        |> Task.andThen (\posix -> Api.task "POST" (Endpoint.dagPut url) (body posix) Api.cidDecoder)
         |> Task.attempt (GotCommitHash key)
 
 

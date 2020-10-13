@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.3] - 2020-04-14
+
+### Added
+- Links & content hash validation
+- Lime color to UI colors
+
+### Changed
+- Fonts changed to PT-Serif for text and Ubuntu for others
+- Font size, colors, styles
+
+### Fixed
+- Content text update
+
 ## [0.4.2] - 2020-03-28
 
 ### Added
